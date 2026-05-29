@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FontFaceRule } from './font-discovery'
-import { findCandidatesForSpan, resolveWebFonts, type WebFontCandidate } from './font-resolver'
+import {
+  findCandidatesForSpan,
+  resolveCjkFallback,
+  resolveWebFonts,
+  type WebFontCandidate,
+} from './font-resolver'
 import { domPx, type FontStyle, type TextSpan } from './types'
+import { rangeCoversCodePoint } from './unicode-range'
 
 function span(
   fontFamily: string,
@@ -289,6 +295,92 @@ describe('resolveWebFonts', () => {
     expect(result).toEqual([])
     expect(onWarning).toHaveBeenCalledOnce()
     expect(onWarning.mock.calls[0]?.[0]).toMatch(/unsupported font container/i)
+  })
+})
+
+describe('resolveCjkFallback', () => {
+  const cssUrl = /^https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Sans\+JP/
+  const gstaticUrl = 'https://fonts.gstatic.com/l/font?kit=notoSubset'
+  const sfnt = new Uint8Array([0x00, 0x01, 0x00, 0x00, 0x55])
+  const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x09])
+
+  function cjkFetch() {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (cssUrl.test(url)) {
+        const css = `@font-face{font-family:'Noto Sans JP';font-style:normal;font-weight:400;src:url(${gstaticUrl}) format('woff2');}`
+        return new Response(css, { status: 200 })
+      }
+      if (url === gstaticUrl) {
+        return new Response(woff2.slice().buffer, { status: 200 })
+      }
+      return new Response(null, { status: 404 })
+    })
+  }
+
+  it('fetches a Noto Sans JP subset for uncovered CJK code points via the text= API', async () => {
+    const fetchFn = cjkFetch()
+    const decodeWoff2 = vi.fn(async () => sfnt)
+    const result = await resolveCjkFallback({
+      pageSpans: [[span('Arial, sans-serif', 400, 'normal', '日本語 Hello')]],
+      candidates: [],
+      fetch: fetchFn,
+      decodeWoff2,
+    })
+    expect(result).not.toBeNull()
+    expect(result?.bytes).toEqual(sfnt)
+    // Covers the CJK glyphs it was fetched for, but not Latin — Latin must
+    // keep falling to the deck's own font so we don't restyle ASCII text.
+    expect(rangeCoversCodePoint(result?.unicodeRange ?? null, '日'.codePointAt(0) ?? 0)).toBe(true)
+    expect(rangeCoversCodePoint(result?.unicodeRange ?? null, 'A'.codePointAt(0) ?? 0)).toBe(false)
+    // The CSS request carries exactly the used CJK characters in text=.
+    const cssCall = fetchFn.mock.calls.find((c) => cssUrl.test(String(c[0])))
+    expect(cssCall).toBeDefined()
+    expect(String(cssCall?.[0])).toContain(encodeURIComponent('日本語'))
+    expect(String(cssCall?.[0])).not.toContain(encodeURIComponent('Hello'))
+    expect(decodeWoff2).toHaveBeenCalledOnce()
+  })
+
+  it('returns null without fetching when no CJK code points are present', async () => {
+    const fetchFn = cjkFetch()
+    const result = await resolveCjkFallback({
+      pageSpans: [[span('Arial', 400, 'normal', 'Just latin text')]],
+      candidates: [],
+      fetch: fetchFn,
+    })
+    expect(result).toBeNull()
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('does not fetch a fallback for CJK already covered by a resolved @font-face', async () => {
+    const notoSans: WebFontCandidate = {
+      family: 'noto sans jp',
+      weight: 400,
+      style: 'normal',
+      bytes: new Uint8Array([0x00, 0x01, 0x00, 0x00]),
+      unicodeRange: [{ start: 0x3000, end: 0x9fff }],
+    }
+    const fetchFn = cjkFetch()
+    const result = await resolveCjkFallback({
+      pageSpans: [[span('Noto Sans JP, sans-serif', 400, 'normal', '日本語')]],
+      candidates: [notoSans],
+      fetch: fetchFn,
+    })
+    expect(result).toBeNull()
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('soft-fails (null + warning, no throw) when the subset fetch errors', async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 503 }))
+    const onWarning = vi.fn()
+    const result = await resolveCjkFallback({
+      pageSpans: [[span('Arial', 400, 'normal', '日本語')]],
+      candidates: [],
+      fetch: fetchFn,
+      onWarning,
+    })
+    expect(result).toBeNull()
+    expect(onWarning).toHaveBeenCalledOnce()
   })
 })
 

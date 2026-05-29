@@ -1,7 +1,7 @@
 import { captureRaster } from './capture'
 import { emitPdf } from './emit'
 import { discoverFontFaces } from './font-discovery'
-import { resolveWebFonts, type WebFontCandidate } from './font-resolver'
+import { resolveCjkFallback, resolveWebFonts, type WebFontCandidate } from './font-resolver'
 import { measure } from './timing'
 import type { DomToPdfOptions, DomToPdfResult, TextSpan } from './types'
 import { extractSpans } from './walk'
@@ -56,12 +56,26 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
     (durationMs) => opts.onTiming?.({ stage: 'fonts', durationMs }),
   )
 
+  // Any CJK the deck's own fonts can't render is fetched on demand as a
+  // minimal Noto Sans JP subset (Google Fonts text= API) so it stays
+  // selectable rather than vanishing from the vector layer.
+  const cjkFallback = await measure(
+    async () =>
+      resolveCjkFallback({
+        pageSpans,
+        candidates: webFonts,
+        onWarning: (msg) => resolverWarnings.push(msg),
+      }),
+    (durationMs) => opts.onTiming?.({ stage: 'fonts', durationMs }),
+  )
+
   const emitResult = await measure(
     async () =>
       emitPdf({
         pageRasters,
         pageSpans,
         webFonts,
+        cjkFallback,
         source: opts.source,
         output: { width: opts.output.width, height: opts.output.height },
         rasterFormat,

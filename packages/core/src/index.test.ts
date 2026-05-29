@@ -281,6 +281,24 @@ describe('domToPdf (PoC)', () => {
     expect(w).toContain('→')
   })
 
+  it('embeds an on-demand CJK fallback so Japanese text is selectable (Type0 font present)', async () => {
+    // Arial has no glyphs for kana/kanji and the standard PDF fonts are
+    // WinAnsi-only, so without a fallback this text vanishes from the vector
+    // layer. domToPdf should fetch a Noto Sans JP subset (Google Fonts text=
+    // API) on demand and embed it as a Type0/CID font.
+    const page = makePage(
+      '<p style="font-family: Arial, sans-serif; font-size: 24px; margin: 24px;">日本語のテスト</p>',
+    )
+    const result = await domToPdf({
+      pages: [page],
+      source: { width: 800, height: 600 },
+      output: { width: 400, height: 300, unit: 'pt' },
+    })
+    const bytes = new Uint8Array(await result.blob.arrayBuffer())
+    const pdf = new TextDecoder('latin1').decode(bytes)
+    expect(pdf).toMatch(/\/Subtype\s*\/Type0/)
+  })
+
   it('embeds the standard font matching each span (serif → Times, mono → Courier, bold → Bold variant)', async () => {
     // The user reads the raster, but we still want the *vector* layer that
     // search/copy/select uses to roughly match the visible style — bold text

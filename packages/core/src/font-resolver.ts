@@ -149,6 +149,131 @@ export async function resolveWebFonts(opts: ResolveOptions): Promise<WebFontCand
   return out
 }
 
+/** Synthetic family for the on-demand CJK fallback; never matched by name. */
+export const CJK_FALLBACK_FAMILY = '__vellum-cjk-fallback'
+
+export interface CjkFallbackOptions {
+  pageSpans: TextSpan[][]
+  /** Already-resolved @font-face candidates, used to skip covered code points. */
+  candidates: readonly WebFontCandidate[]
+  fetch?: typeof fetch
+  decodeWoff2?: (bytes: Uint8Array) => Promise<Uint8Array>
+  onWarning?: (msg: string) => void
+}
+
+/**
+ * Resolve a Noto Sans JP fallback for CJK code points the deck uses but no
+ * embedded font (and no standard PDF font) can render. Rather than bundling a
+ * multi-MB CJK face, we ask the Google Fonts `text=` API for a subset holding
+ * only the characters actually used — typically a few KB.
+ *
+ * Returns a single candidate covering exactly those code points (so Latin keeps
+ * falling to the deck's own font), or null when no fallback is needed. Network
+ * failures degrade to null + a warning; CJK then stays in the raster layer.
+ */
+export async function resolveCjkFallback(
+  opts: CjkFallbackOptions,
+): Promise<WebFontCandidate | null> {
+  const needed = collectUncoveredCjk(opts.pageSpans, opts.candidates)
+  if (needed.size === 0) return null
+
+  const fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis)
+  const decodeWoff2 = opts.decodeWoff2 ?? decodeWoff2ToSfnt
+  const chars = [...needed]
+    .sort((a, b) => a - b)
+    .map((cp) => String.fromCodePoint(cp))
+    .join('')
+  const cssUrl = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP&text=${encodeURIComponent(chars)}`
+
+  try {
+    const cssRes = await fetchFn(cssUrl)
+    if (!cssRes.ok) {
+      opts.onWarning?.(
+        `Fetching the Noto Sans JP fallback CSS failed: HTTP ${cssRes.status}. CJK text stays in the raster (visible, not selectable).`,
+      )
+      return null
+    }
+    const css = await cssRes.text()
+    const src = parseFirstFontUrl(css)
+    if (!src || !isAllowedFontUrl(src)) {
+      opts.onWarning?.(
+        'Could not resolve a Google Fonts subset URL for the CJK fallback. CJK text stays in the raster.',
+      )
+      return null
+    }
+    const fontRes = await fetchFn(src)
+    if (!fontRes.ok) {
+      opts.onWarning?.(
+        `Fetching the Noto Sans JP subset failed: HTTP ${fontRes.status}. CJK text stays in the raster.`,
+      )
+      return null
+    }
+    const raw = new Uint8Array(await fontRes.arrayBuffer())
+    const bytes = isWoff2(raw) ? await decodeWoff2(raw) : raw
+    if (!isSfntBytes(bytes)) {
+      opts.onWarning?.('The Noto Sans JP subset did not decode to SFNT; skipping the CJK fallback.')
+      return null
+    }
+    return {
+      family: CJK_FALLBACK_FAMILY,
+      weight: 400,
+      style: 'normal',
+      bytes,
+      unicodeRange: codePointsToRanges(needed),
+    }
+  } catch (err) {
+    opts.onWarning?.(
+      `Resolving the Noto Sans JP fallback threw: ${(err as Error).message}. CJK text stays in the raster.`,
+    )
+    return null
+  }
+}
+
+/**
+ * Code points used by spans that (a) no matched @font-face candidate covers and
+ * (b) lie in a CJK block Noto Sans JP can serve. Latin / WinAnsi text is left
+ * to the standard-font path; only genuinely unrenderable CJK needs the fetch.
+ */
+function collectUncoveredCjk(
+  pageSpans: TextSpan[][],
+  candidates: readonly WebFontCandidate[],
+): Set<number> {
+  const out = new Set<number>()
+  for (const spans of pageSpans) {
+    for (const s of spans) {
+      const spanCandidates = findCandidatesForSpan(candidates, s)
+      for (const ch of s.text) {
+        const cp = ch.codePointAt(0)
+        if (cp === undefined || !isCjkCodePoint(cp)) continue
+        if (spanCandidates.some((c) => rangeCoversCodePoint(c.unicodeRange, cp))) continue
+        out.add(cp)
+      }
+    }
+  }
+  return out
+}
+
+/** Hiragana, Katakana, CJK punctuation/ideographs, and full/half-width forms. */
+function isCjkCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x3000 && cp <= 0x30ff) || // CJK symbols/punctuation + Hiragana + Katakana
+    (cp >= 0x31f0 && cp <= 0x31ff) || // Katakana phonetic extensions
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Unified Ideographs Extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified Ideographs
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility Ideographs
+    (cp >= 0xff00 && cp <= 0xffef) // Halfwidth and Fullwidth Forms
+  )
+}
+
+function codePointsToRanges(cps: ReadonlySet<number>): CodePointRange[] {
+  return [...cps].sort((a, b) => a - b).map((cp) => ({ start: cp, end: cp }))
+}
+
+function parseFirstFontUrl(css: string): string | null {
+  const m = css.match(/url\(\s*['"]?([^'")]+)['"]?\s*\)/)
+  return m?.[1] ?? null
+}
+
 async function tryFetchBytes(
   fetchFn: typeof fetch,
   decodeWoff2: (bytes: Uint8Array) => Promise<Uint8Array>,

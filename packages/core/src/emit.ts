@@ -16,6 +16,13 @@ export interface EmitOptions {
    * candidate use it instead of the standard PDF font fallback.
    */
   webFonts: WebFontCandidate[]
+  /**
+   * On-demand CJK fallback (Noto Sans JP subset). Unlike `webFonts` it is not
+   * matched by font-family — it is offered to every span so per-character
+   * selection routes uncovered CJK code points to it while Latin stays on the
+   * span's own font. Null when no CJK fallback was needed or resolvable.
+   */
+  cjkFallback?: WebFontCandidate | null
   /** Logical DOM size of every page (assumed identical). */
   source: { width: number; height: number }
   /** PDF page size in points. */
@@ -35,6 +42,16 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
   const warnings: string[] = []
   const unencodableStandard = new Set<string>()
 
+  // The CJK fallback is offered to every span on top of its family-matched
+  // candidates; per-character unicode-range selection in splitIntoRuns then
+  // routes uncovered CJK code points to it.
+  const fallback = opts.cjkFallback ?? null
+  const candidatesForSpan = (span: TextSpan): WebFontCandidate[] => {
+    const matched = findCandidatesForSpan(opts.webFonts, span)
+    return fallback ? [...matched, fallback] : matched
+  }
+  const allFonts = fallback ? [...opts.webFonts, fallback] : opts.webFonts
+
   // Pre-walk every page span, identify which @font-face candidates would
   // actually be picked at draw time (per char, by unicode-range), and embed
   // only those. Skipping unused subsets keeps the output minimal and
@@ -43,7 +60,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
   const usedCandidates = new Set<WebFontCandidate>()
   for (const pageSpansSet of opts.pageSpans) {
     for (const span of pageSpansSet) {
-      const candidates = findCandidatesForSpan(opts.webFonts, span)
+      const candidates = candidatesForSpan(span)
       if (candidates.length === 0) continue
       for (const ch of span.text) {
         const cp = ch.codePointAt(0) ?? 0
@@ -58,7 +75,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
   }
 
   const cidFonts = new Map<WebFontCandidate, CidFontHandle>()
-  for (const wf of opts.webFonts) {
+  for (const wf of allFonts) {
     if (!usedCandidates.has(wf)) continue
     try {
       cidFonts.set(
@@ -112,7 +129,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
     }
     const spanPlans: SpanPlan[] = []
     for (const span of spans) {
-      const candidates = findCandidatesForSpan(opts.webFonts, span)
+      const candidates = candidatesForSpan(span)
       const stdKey = pickStandardFont(span)
       const stdHandle = getStandardFont(stdKey)
       const fontSizePt = span.fontSize * scaleY
@@ -316,8 +333,14 @@ function splitLtrByFont(
         const handle = cidFonts.get(full)
         if (handle) chosen = handle
       } else {
+        // Only take a partial candidate if it actually covers part of the
+        // cluster. pickBestCoverageCandidate returns a font even at zero
+        // coverage, which would wrongly route code points outside every
+        // candidate's unicode-range (e.g. symbols when only a CJK fallback is
+        // present) onto a CID font instead of the standard-font path.
         const partial = pickBestCoverageCandidate(cluster, candidates)
-        const handle = partial ? cidFonts.get(partial) : null
+        const handle =
+          partial && countCoveredCodePoints(cluster, partial) > 0 ? cidFonts.get(partial) : null
         if (handle) chosen = handle
       }
     }
