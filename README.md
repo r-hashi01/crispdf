@@ -44,14 +44,19 @@ other fixed-size DOM layouts where preserving the visual result matters.
 
 ## Current Capabilities
 
-- Multi-page browser-only PDF generation.
+- Multi-page browser-only PDF generation; pages are walked and captured
+  concurrently.
 - Raster background capture through `html-to-image`.
-- Selectable/searchable text overlay positioned from DOM ranges.
+- Selectable/searchable text overlay positioned from DOM ranges, including
+  `::before` / `::after` generated text with literal-string `content`.
 - Standard PDF font fallback for Latin text.
-- Google Fonts `@font-face` discovery from same-origin CSSOM rules.
+- Google Fonts `@font-face` discovery + `unicode-range`-aware per-character font
+  selection.
 - WOFF2 decoding before embedding, so PDFs do not embed raw web-font containers.
 - CID-keyed embedded fonts with `/ToUnicode` maps for copy/paste.
+- On-demand Noto Sans JP fallback for CJK text via the Google Fonts `text=` API.
 - RTL shaping/placement support for Arabic-like runs when a covering font exists.
+- `validate(pages)` static pre-flight + opt-in pdf.js visual self-check.
 - Timing and warning callbacks for diagnostics.
 
 ## Constraints
@@ -62,6 +67,8 @@ other fixed-size DOM layouts where preserving the visual result matters.
   (`fonts.gstatic.com` / `fonts.googleapis.com`).
 - Cross-origin stylesheets that cannot be inspected through CSSOM are skipped by
   the browser.
+- Generated content beyond literal strings (counters, `attr()`, images), Shadow
+  DOM, and iframes are not walked.
 - Color emoji and unsupported glyphs are still visible in the raster layer, but
   may not be present in the selectable text layer unless an embeddable font
   covers them.

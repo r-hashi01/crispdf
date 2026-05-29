@@ -4,6 +4,78 @@ Working notes — captured at the end of a session so the next one can pick up c
 
 ---
 
+## 2026-05-29 — committed the in-house-writer aftermath + shipped ::before/::after extraction
+
+Note: progress.md fell behind reality — Phase 3 steps 1–9 (in-house PDF writer, drop pdf-lib) and the fontkit subset fallbacks all landed on `main` between the previous entry and now; check `git log` for the authoritative history. This entry resumes from there.
+
+### What was uncommitted at session start (all green: 129 tests / lint / typecheck / build), now committed
+
+Split the large uncommitted blob into two clean commits (progress.md + `.claude/settings.json` deliberately left local):
+
+1. `30d15c9` **chore: collapse to single `@vellum/core` package + publish prep.** Dropped the react/astro/validator stubs, narrowed `pnpm-workspace.yaml` to `packages/core` — **the multi-package plan is shelved; core ships standalone.** Added publish metadata, LICENSE/CHANGELOG/CONTRIBUTING/SECURITY, the `woff2-encoder` dep, and `.gitignore`'d PLAN.md.
+2. `c5cc3ea` **feat: RTL/bidi shaping + WOFF2 decode + capture fidelity.** New `woff2-decoder.ts` (WOFF2→SFNT before embed; `CidFontHandle` rejects WOFF2 + adds `/Length1`). Bidi: `walk.ts` records computed `direction` + merges per-line rect fragments; `emit.ts` splits directional runs, shapes RTL via `fontkit layout(direction)`, places RTL right-to-left; LTR splits per grapheme cluster. Capture: `-webkit-text-fill-color` transparent, `[data-vellum-raster-text]` opt-out (bake into raster + skip in walker), `skipFonts` in html-to-image.
+
+### New work this session
+
+3. `dfdeda1` **feat: extract `::before`/`::after` literal-string content** (PLAN §5.2). Found a silent-loss bug: capture forces `*::before/::after` transparent, but the walker never extracted generated text → it vanished from both layers. Fix: a second `SHOW_ELEMENT` pass reads `getComputedStyle(el, pseudo)`, `parsePseudoContent()` accepts only single literal-string `content` (counters/`attr()`/`url()`/quote keywords stay raster-only), and `pseudoRect()` derives geometry from the content-box edge → first/last real-content-rect gap (generated boxes have no Range). LTR + RTL anchored. No double-draw risk (raster already suppresses the glyph); width is re-measured in emit, so the approximate box only feeds line grouping. 3 TDD tests in `index.test.ts` (before / after / no-phantom-for-none).
+
+### Roadmap, top-to-bottom (agreed with user: work down in order)
+
+- ✅ `::before`/`::after` extraction (`dfdeda1`)
+- ✅ **CJK fallback (Noto Sans JP), on-demand fetch** (`e1c650a`). Decision: user chose on-demand over bundling. `resolveCjkFallback()` (font-resolver.ts) collects uncovered CJK code points and fetches a Noto Sans JP subset via the Google Fonts `text=` API (few KB, not multi-MB); degrades to null+warning offline. emit offers it to *every* span (not family-matched) so per-char selection routes CJK to it, Latin stays on the deck font. Caught + fixed a latent bug: `pickBestCoverageCandidate` returns a font at zero coverage, so a universal fallback misrouted out-of-range symbols (→, ☃) onto the CID font; `splitLtrByFont` now requires `countCoveredCodePoints > 0` for the partial path. Tests: 4 resolver unit tests (injected fetch/decode) + 1 dom-to-pdf integration test (real Google Fonts fetch → asserts `/Subtype /Type0`).
+  - Deferred: only weight 400 fetched (bold CJK falls to 400; raster shows bold). Only Noto Sans **JP** — Korean/Thai/etc. not covered. `isCjkCodePoint` covers kana + CJK ideographs + CJK punct + fullwidth forms.
+- ✅ **self-check via pdf.js (visual diff, PLAN §8)** (`c3d9990`). Decision (user): dynamic import + opt-in. `self-check.ts` = pure `meanPixelDiff` (RGB, alpha-ignored, 0..1) + `runSelfCheck` with injected decode/render deps; default deps decode via createImageBitmap+OffscreenCanvas and render via pdf.js (`import('pdfjs-dist')`, kept out of the bundle by `tsup external`, optional peer dep). API: `selfCheck:{enabled,threshold?}` (off by default, threshold 0.02) → `result.selfCheck: {page,diff,exceeded}[]`. A page whose render throws is skipped with a warning, never sinks generation. Tests: 6 unit (injected fakes) + 2 in-browser integration (real pdf.js render works in vitest/Playwright via `new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url)` worker).
+  - Deferred: diff is mean-abs RGB, not SSIM (PLAN §8 mentions both); no per-region localization; pdf.js worker config relies on bundler URL resolution (Vite/webpack OK; document for other bundlers).
+- ✅ **Concurrent capture** (`60f9fba`). Measure-first: benchmarked 8-page deck, sequential ~200-227ms wall-clock (capture ~90%, fully serialized). Switched walk+capture to per-page `Promise.all` → ~97-135ms (~2x), zero new deps. Safe: shared transparency stylesheet removed only once no page carries the capture class; html-to-image clones before rasterizing; order preserved via Promise.all+map. Locked by a "4 pages → 4 /Type /Page" test.
+  - **Worker deferred (deliberate).** Main-thread concurrency captured most of the win; remaining floor is html-to-image's synchronous CPU work, which a worker can't help because html-to-image needs the live DOM (main thread only). An OffscreenCanvas worker would improve main-thread *responsiveness*, not throughput — revisit only if blocking the UI thread becomes a real UX complaint.
+- ~~@vellum/react / astro~~ — shelved (single-package pivot)
+
+### Roadmap status: PLAN §9 Phase 2 + Phase 3 substantively complete
+
+Phase 2 (webfont subset, unicode-range, ::before/::after, CJK fallback, capture parallelism) and Phase 3 (in-house PDF writer, self-check) are all landed. The visible-degradation invariant is now backstopped by self-check. Remaining/optional, no committed order:
+- ✅ **`validate(pages)`** (`11947b0`) — the last Phase 2 item. Static pre-flight (PLAN §6), the *before* pair to self-check's *after*. Exported from root: `{ ok, errors, warnings }`. Hard errors: `<canvas>`/`<video>` (raster-only → silent text loss). Soft warnings: mix-blend-mode, filter, backdrop-filter, position:sticky, 3D transform (matrix3d/perspective). 9 browser tests; public-API lock updated. **Phase 2 + Phase 3 now fully complete.**
+- SSIM (vs current mean-abs-RGB) for self-check; per-region diff localization.
+- Bold-weight CJK fetch (currently 400 only); non-JP Noto scripts (KR/SC/TC/Thai).
+- Phase 4: docs, benchmarks, npm publish (CD intentionally not wired — see CLAUDE.md).
+
+### Deferred within the pseudo-element increment
+- Only literal-string `content`. Counters (`counter()`), `attr()`, and `content: url(img)` are not extracted — they remain raster-only (visible, not selectable). Open/close-quote keywords likewise.
+- Pseudo-only elements (no real DOM content to anchor) fall back to a content-box-first-line box — placement is rough; revisit if a real deck needs it.
+
+---
+
+## 2026-05-07 (later 3) — Phase 2 (c) shipped, Phase 3 (in-house PDF emitter) decided
+
+### What landed in Phase 2 (c)
+
+1. **`unicode-range` parser** (`unicode-range.ts`): single point, hex-hex range, `?` wildcard, comma list. `null` ranges = "covers everything" (CSS default). Strict-ish — malformed segment → null so we fall open, never silently drop characters.
+2. **`FontFaceRule.unicodeRange`** + new **`matchFontFaceRules()`** that returns *every* rule sharing the matched (family, weight, style) triple. Resolver now fetches every unicode-range subset (latin / latin-ext / cyrillic / …), deduplicating by URL.
+3. **Per-character run splitting in emit**: `splitIntoRuns()` walks span text and picks the first candidate whose `unicode-range` covers each code point; consecutive same-font chars collapse into one drawText call. Layout planner sees span-level totals; intra-span runs lay out cumulatively from the planned x.
+4. **Pre-walk for unused subsets**: emit identifies which candidates would actually be picked at draw time and skips embedding the rest. (Originally meant to dodge the encodeStream crash by avoiding empty subsets — see below for the real cause.)
+5. **subset-failure fallback**: `emitPdf` retries with `subset: false` when save throws `_this.subset.encodeStream is not a function`. PDF size grows but generation always completes.
+
+### Root cause for the `subset.encodeStream` crash
+
+Diagnostic instrumentation (since removed) confirmed: **pdf-lib@1.17.1 ↔ fontkit@2.x ABI mismatch**. fontkit 2.x's `Subset` class no longer exposes `encodeStream()`; pdf-lib's `CustomFontSubsetEmbedder.serializeFont()` calls it at save time. pdf-lib hasn't released since 2023 and hasn't adopted the new fontkit API. The fallback to `subset: false` works but ships the full font file (Inter latin ~48KB + latin-ext ~85KB per weight, then everything else used).
+
+### Phase 3 decision (next session, on `main`)
+
+Build an **in-house PDF emitter** (`@vellum/pdf` or internal `pdf-writer.ts`) that uses fontkit 2.x directly:
+
+- Comparison considered: pdf-lib (current; subset stuck), pdfme (built on pdf-lib → same bug), jsPDF (no subsetting + no woff2), PDFKit-browser (old fontkit, no woff2). Self-build is the only path that keeps every invariant.
+- Estimated ~1500-1800 LoC: PDF object writer + xref/trailer + page tree + image XObject (DCTDecode JPEG, FlateDecode PNG) + Standard 14 (Type 1 + WinAnsi) + Type 0/CID font with subsetted bytes + ToUnicode CMap + content-stream text ops.
+- Cutover plan: build alongside the existing pdf-lib path, swap `emit.ts` over once functional parity + tests are green, drop pdf-lib from `@vellum/core` deps.
+
+### Tests
+
+- 10 new unicode-range parser tests
+- 1 `matchFontFaceRules` test (returns all matching rules across ranges)
+- 1 `resolveWebFonts` test (fetches every unicode-range subset)
+- 2 `findCandidatesForSpan` tests
+- Total 70/70, lint + typecheck + build all green.
+
+---
+
 ## 2026-05-07 (later) — Phase 2 (b) shipped
 
 ### What landed
