@@ -15,33 +15,37 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
 
   const rasterFormat = opts.rasterFormat ?? 'jpeg'
   const jpegQuality = opts.jpegQuality ?? 0.85
-  const pageRasters: Uint8Array[] = []
-  const pageSpans: TextSpan[][] = []
   const resolverWarnings: string[] = []
 
-  for (let i = 0; i < pages.length; i++) {
-    const page = pages[i]
-    if (!page) continue
-    opts.onProgress?.(i, pages.length)
-
-    const spans = await measure(
-      async () => extractSpans(page),
-      (durationMs) => opts.onTiming?.({ stage: 'walk', page: i + 1, durationMs }),
-    )
-    pageSpans.push(spans)
-
-    const raster = await measure(
-      async () =>
-        captureRaster(page, {
-          format: rasterFormat,
-          quality: jpegQuality,
-          width: opts.source.width,
-          height: opts.source.height,
-        }),
-      (durationMs) => opts.onTiming?.({ stage: 'capture', page: i + 1, durationMs }),
-    )
-    pageRasters.push(raster)
-  }
+  // Walk + capture every page concurrently. capture (rasterization) is the
+  // dominant stage (PoC timings) and is mostly async waits — font readiness,
+  // requestAnimationFrame, image decode — so overlapping pages collapses those
+  // idle gaps. The transparency stylesheet is shared and removed only once no
+  // page still carries the capture class, so concurrent captures don't race.
+  // Results are gathered in page order; the walker reads each page's live DOM
+  // and html-to-image clones before rasterizing, so reads stay independent.
+  const perPage = await Promise.all(
+    pages.map(async (page, i) => {
+      opts.onProgress?.(i, pages.length)
+      const spans = await measure(
+        async () => extractSpans(page),
+        (durationMs) => opts.onTiming?.({ stage: 'walk', page: i + 1, durationMs }),
+      )
+      const raster = await measure(
+        async () =>
+          captureRaster(page, {
+            format: rasterFormat,
+            quality: jpegQuality,
+            width: opts.source.width,
+            height: opts.source.height,
+          }),
+        (durationMs) => opts.onTiming?.({ stage: 'capture', page: i + 1, durationMs }),
+      )
+      return { spans, raster }
+    }),
+  )
+  const pageSpans: TextSpan[][] = perPage.map((p) => p.spans)
+  const pageRasters: Uint8Array[] = perPage.map((p) => p.raster)
 
   // Phase 2: discover document @font-face rules and fetch the bytes for the
   // (family, weight, style) triples spans actually use. Resolution lives

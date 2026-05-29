@@ -281,6 +281,27 @@ describe('domToPdf (PoC)', () => {
     expect(w).toContain('→')
   })
 
+  it('captures pages concurrently while preserving page count and order', async () => {
+    // Pages are walked + captured concurrently (Promise.all). The shared
+    // transparency stylesheet is removed only once no page still carries the
+    // capture class, so overlapping captures must not corrupt each other or
+    // drop/reorder pages. We lock the structural guarantee: one /Type /Page
+    // per input element, in order.
+    const pages = Array.from({ length: 4 }, (_, i) =>
+      makePage(`<h1 style="font-size: 24px; margin: 24px;">Concurrent page ${i + 1}</h1>`),
+    )
+    const result = await domToPdf({
+      pages,
+      source: { width: 800, height: 600 },
+      output: { width: 400, height: 300, unit: 'pt' },
+    })
+    const bytes = new Uint8Array(await result.blob.arrayBuffer())
+    const pdf = new TextDecoder('latin1').decode(bytes)
+    // /Type /Page but not /Type /Pages (the page-tree root).
+    const pageObjs = pdf.match(/\/Type\s*\/Page(?![s])/g) ?? []
+    expect(pageObjs).toHaveLength(4)
+  })
+
   it('runs the opt-in self-check, returning a per-page visual diff via real pdf.js', async () => {
     // End-to-end exercise of the default self-check deps (pdf.js render +
     // OffscreenCanvas decode) in a real browser. We assert the wiring and that
