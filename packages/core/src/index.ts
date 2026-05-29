@@ -10,5 +10,6 @@ export type {
   TextSpan,
   TimingEvent,
 } from './types'
+export { type ValidationIssue, type ValidationResult, validate } from './validate'
 
 export const VERSION = '0.1.0'

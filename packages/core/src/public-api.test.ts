@@ -4,6 +4,7 @@ import * as api from './index'
 describe('public API surface', () => {
   it('exports the documented runtime entry points', () => {
     expect(typeof api.domToPdf).toBe('function')
+    expect(typeof api.validate).toBe('function')
     expect(typeof api.VERSION).toBe('string')
   })
 
@@ -14,7 +15,7 @@ describe('public API surface', () => {
     const runtime = Object.keys(api).filter(
       (k) => typeof (api as Record<string, unknown>)[k] !== 'undefined',
     )
-    expect(runtime.sort()).toEqual(['VERSION', 'domToPdf'])
+    expect(runtime.sort()).toEqual(['VERSION', 'domToPdf', 'validate'])
   })
 
   it('VERSION is a non-empty semver-shaped string', () => {
