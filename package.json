@@ -3,15 +3,33 @@
   "private": true,
   "version": "0.0.0",
   "description": "DOM → high-quality PDF (raster background + vector text hybrid)",
+  "license": "MIT",
+  "author": "Ryusei Hashimoto",
+  "homepage": "https://github.com/r-hashi01/vellum#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/r-hashi01/vellum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/r-hashi01/vellum/issues"
+  },
+  "keywords": [
+    "pdf",
+    "dom-to-pdf",
+    "html-to-pdf",
+    "browser",
+    "typescript",
+    "client-side"
+  ],
   "engines": {
     "node": ">=20"
   },
   "packageManager": "pnpm@10.30.2",
   "scripts": {
-    "build": "pnpm -r --filter=\"./packages/*\" run build",
-    "dev": "pnpm -r --parallel --filter=\"./packages/*\" run dev",
-    "test": "pnpm -r --filter=\"./packages/*\" run test",
-    "typecheck": "pnpm -r --filter=\"./packages/*\" run typecheck",
+    "build": "pnpm --filter @vellum/core run build",
+    "dev": "pnpm --filter @vellum/core run dev",
+    "test": "pnpm --filter @vellum/core run test",
+    "typecheck": "pnpm --filter @vellum/core run typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
     "example": "pnpm --filter @vellum/core exec vite ../../examples"

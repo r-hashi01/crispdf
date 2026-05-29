@@ -1,27 +1,17 @@
 # @vellum/core
 
-DOM → high-quality PDF in the browser. Hybrid renderer: rasterized background (everything visual) + real PDF text overlay (selectable, searchable, copyable).
+Browser-side DOM to PDF with high visual fidelity and selectable text.
 
-> **Status:** `0.1.0` — Phase 1 (MVP). Multi-page, standard-PDF-font auto-mapping, browser-only. Webfont subsetting is Phase 2.
-
-## Why
-
-Existing browser-side options force a tradeoff:
-
-| Approach                    | Text is selectable | Visual fidelity | Server needed |
-| --------------------------- | ------------------ | --------------- | ------------- |
-| `html2pdf.js` (canvas)      | ❌                 | OK              | No            |
-| `jsPDF.html()` (vector)     | ✅ (limited CSS)   | Breaks easily   | No            |
-| `puppeteer` (server-side)   | ✅                 | ✅              | **Yes**       |
-| **`@vellum/core`** (hybrid) | ✅                 | ✅              | **No**        |
-
-Vellum rasterizes the page (with text invisibly suppressed) for visual fidelity, then overlays real PDF text positioned via the Range API. Failure modes are *visible* (degraded), never silent.
+`@vellum/core` renders each page as a raster background, then overlays real PDF
+text on top. The result keeps complex HTML/CSS visually intact while preserving
+search, selection, and copy/paste for text that can be mapped to a PDF font.
 
 ## Install
 
 ```sh
 pnpm add @vellum/core
-# or: npm i @vellum/core / yarn add @vellum/core
+# npm i @vellum/core
+# yarn add @vellum/core
 ```
 
 ## Usage
@@ -30,44 +20,25 @@ pnpm add @vellum/core
 import { domToPdf } from '@vellum/core'
 
 const result = await domToPdf({
-  pages: document.querySelectorAll<HTMLElement>('.slide-page'),
-  source: { width: 1920, height: 1080 }, // logical DOM size
-  output: { width: 960, height: 540, unit: 'pt' }, // PDF page size
-  rasterFormat: 'jpeg', // 'jpeg' | 'png' (default: 'jpeg')
+  pages: document.querySelectorAll<HTMLElement>('[data-page]'),
+  source: { width: 800, height: 600 },
+  output: { width: 800, height: 600, unit: 'pt' },
+  rasterFormat: 'jpeg',
   jpegQuality: 0.85,
-  onProgress: (i, total) => console.log(`page ${i}/${total}`),
-  onTiming: (e) => console.log(e), // { stage: 'walk'|'capture'|'emit', ... }
+  onProgress: (pageIndex, totalPages) => {
+    console.log(`page ${pageIndex}/${totalPages}`)
+  },
+  onTiming: (event) => {
+    console.log(event)
+  },
 })
 
-// result.blob is the PDF (application/pdf)
-// result.warnings lists any characters dropped from the selectable layer
+if (result.warnings.length > 0) {
+  console.warn(result.warnings)
+}
+
 const url = URL.createObjectURL(result.blob)
 ```
-
-### What gets selectable PDF text
-
-Every visible HTML text node, walked via `TreeWalker` and positioned with `Range.getClientRects()`. Each visual line is one PDF text run. The font is mapped to one of the 12 PDF standard fonts based on the CSS `font-family` chain, `font-weight`, and `font-style`:
-
-| CSS family bucket   | PDF font  |
-| ------------------- | --------- |
-| sans-serif (`Arial`, `Helvetica`, `system-ui`, …) | Helvetica |
-| serif (`Times`, `Georgia`, `serif`, …)            | Times-Roman |
-| monospace (`Menlo`, `Consolas`, `monospace`, …)   | Courier |
-
-Bold (`weight ≥ 600`) and italic/oblique pick the matching variant.
-
-### What gets rasterized
-
-Backgrounds, gradients, shadows, SVG, `<img>`, transforms, filters — everything visual. The same characters that aren't selectable (e.g. CJK or emoji that the standard PDF fonts can't encode) are still **visible** in the raster, so users notice when copy/paste is missing them.
-
-### Phase 1 limitations (lifted in Phase 2)
-
-- Webfonts are not subsetted yet. CJK / emoji / glyphs outside Latin1 fall through to the raster only — `result.warnings` lists the unencodable characters.
-- No `::before` / `::after` text extraction.
-- No Shadow DOM / iframe traversal.
-- Single-threaded; no Web Worker parallelism.
-
-See [`PLAN.md`](https://github.com/r-hashi01/vellum/blob/main/PLAN.md) for the full roadmap.
 
 ## API
 
@@ -84,13 +55,54 @@ interface DomToPdfOptions {
   onTiming?: (event: TimingEvent) => void
 }
 
+type TimingEvent =
+  | { stage: 'walk'; page: number; durationMs: number }
+  | { stage: 'capture'; page: number; durationMs: number }
+  | { stage: 'fonts'; durationMs: number }
+  | { stage: 'emit'; durationMs: number }
+
 interface DomToPdfResult {
   blob: Blob
   warnings: string[]
 }
 ```
 
-Full types are exported from the package entry.
+## How It Works
+
+1. Walk visible DOM text and record line rectangles through `Range`.
+2. Capture each page as a raster image for visual fidelity.
+3. Discover eligible `@font-face` rules.
+4. Fetch/decode WOFF2 web fonts into SFNT/OTF/TTF bytes.
+5. Emit a PDF with the raster page image plus a selectable text layer.
+
+The PDF writer embeds web fonts as CID-keyed fonts with Identity-H encoding and
+`/ToUnicode` maps. Raw WOFF2 containers are never embedded.
+
+## Font Behavior
+
+- Latin text can fall back to the PDF standard fonts: Helvetica, Times, Courier,
+  and their bold/italic variants.
+- Google Fonts web fonts can be embedded when they are discoverable from CSSOM.
+- `unicode-range` subsets are filtered to the actual code points used in the
+  document, then fetched in parallel.
+- Characters not covered by an embeddable font remain visible in the raster
+  layer, but may be dropped from the selectable layer with a warning.
+
+## Browser Requirements
+
+The package runs in browsers. It requires DOM APIs, `Blob`, `fetch`,
+`document.fonts`, `Range.getClientRects()`, and canvas/image APIs used by
+`html-to-image`.
+
+## Limitations
+
+- Web font embedding is restricted to Google Fonts hosts
+  (`fonts.gstatic.com` / `fonts.googleapis.com`) in the current release.
+- Cross-origin stylesheets that cannot be inspected through CSSOM are skipped.
+- `::before` / `::after` generated text, Shadow DOM, and iframes are not walked.
+- Color emoji support depends on an embeddable font; otherwise emoji are raster
+  only.
+- The API is stable enough to try, but this is still a `0.1.x` package.
 
 ## License
 

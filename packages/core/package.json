@@ -2,6 +2,7 @@
   "name": "@vellum/core",
   "version": "0.1.0",
   "description": "DOM → high-quality PDF in the browser: raster background + vector text overlay. Selectable, searchable, copyable text.",
+  "author": "Ryusei Hashimoto",
   "keywords": [
     "pdf",
     "dom-to-pdf",
@@ -22,6 +23,9 @@
   },
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -33,12 +37,15 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run typecheck && pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -46,7 +53,8 @@
   "dependencies": {
     "@pdf-lib/standard-fonts": "^1.0.0",
     "fontkit": "^2.0.4",
-    "html-to-image": "^1.11.13"
+    "html-to-image": "^1.11.13",
+    "woff2-encoder": "^2.0.0"
   },
   "devDependencies": {
     "@types/fontkit": "^2.0.9",
