@@ -53,12 +53,13 @@ export interface DomToPdfOptions {
   onTiming?: (event: TimingEvent) => void
   /**
    * Opt-in Phase 3 self-check: render the generated PDF back to pixels and
-   * pixel-diff each page against its capture-phase raster, flagging pages that
-   * diverge. Requires `pdfjs-dist` (optional peer dependency). Off by default.
+   * pixel-diff each page against a ground-truth raster (the page as rendered,
+   * text included), flagging pages that diverge. Requires `pdfjs-dist`
+   * (optional peer dependency). Off by default.
    */
   selfCheck?: {
     enabled: boolean
-    /** Mean per-channel diff (0..1) above which a page is flagged. Default 0.02. */
+    /** Mean per-channel diff (0..1) above which a page is flagged. Default 0.1. */
     threshold?: number
   }
 }
@@ -73,7 +74,7 @@ export type TimingEvent =
 export interface SelfCheckPageResult {
   /** 1-indexed page number. */
   page: number
-  /** Visual diff 0..1 between the rendered PDF page and the capture raster. */
+  /** Visual diff 0..1 between the rendered PDF page and the ground-truth raster. */
   diff: number
   /** Whether `diff` exceeded the configured threshold. */
   exceeded: boolean

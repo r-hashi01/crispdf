@@ -38,11 +38,22 @@ export interface CaptureOptions {
   quality: number
   width: number
   height: number
+  /**
+   * Default true: apply the transparency trick so text is absent from the
+   * raster (the PDF text layer is drawn on top). Set false to capture the page
+   * exactly as rendered — text included — for the self-check ground truth.
+   */
+  suppressText?: boolean
 }
 
 export async function captureRaster(page: HTMLElement, opts: CaptureOptions): Promise<Uint8Array> {
-  const styleEl = ensureStyle()
-  page.classList.add(CAPTURE_CLASS)
+  const suppress = opts.suppressText !== false
+  // When capturing ground truth (text visible) we must inline @font-face blobs
+  // so web-font glyphs render correctly; when suppressing, glyphs are
+  // transparent so font inlining is pure overhead.
+  const skipFonts = suppress
+  const styleEl = suppress ? ensureStyle() : null
+  if (suppress) page.classList.add(CAPTURE_CLASS)
   try {
     await document.fonts.ready
     await nextFrame()
@@ -53,24 +64,24 @@ export async function captureRaster(page: HTMLElement, opts: CaptureOptions): Pr
             quality: opts.quality,
             width: opts.width,
             height: opts.height,
-            // During capture every text glyph is forced transparent, so
-            // inlining @font-face blobs into the SVG clone is pure overhead.
-            skipFonts: true,
+            skipFonts,
           })
         : await toPng(page, {
             width: opts.width,
             height: opts.height,
-            skipFonts: true,
+            skipFonts,
           })
 
     const buf = await (await fetch(dataUrl)).arrayBuffer()
     return new Uint8Array(buf)
   } finally {
-    page.classList.remove(CAPTURE_CLASS)
-    // Leave the <style> in the document for subsequent pages; we remove it
-    // only when no element still carries the class.
-    if (!document.querySelector(`.${CAPTURE_CLASS}`)) {
-      styleEl.remove()
+    if (suppress) {
+      page.classList.remove(CAPTURE_CLASS)
+      // Leave the <style> in the document for concurrent/subsequent pages; we
+      // remove it only when no element still carries the class.
+      if (!document.querySelector(`.${CAPTURE_CLASS}`)) {
+        styleEl?.remove()
+      }
     }
   }
 }

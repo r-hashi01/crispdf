@@ -153,10 +153,16 @@ interface ValidationIssue {
 ## Self-check
 
 With `selfCheck.enabled`, the generated PDF is rendered back to pixels with
-pdf.js and each page is diffed against its capture-phase raster. Pages that
-diverge beyond `threshold` (default `0.02`) are reported in `result.warnings`
-and `result.selfCheck`. This turns silent rendering drift — a font that didn't
-embed, an unsupported CSS feature — into a detectable warning.
+pdf.js and each page is diffed against a ground-truth raster — the page as it
+actually renders, text included (captured separately from the text-suppressed
+embedding raster, so a page that lost text diffs *higher*, not lower). Pages
+that diverge beyond `threshold` (default `0.1`) are reported in
+`result.warnings` and `result.selfCheck`. This turns silent rendering drift — a
+font that didn't embed, an unsupported CSS feature — into a detectable warning.
+
+The diff is a whole-page mean-abs comparison, which is blunt: it catches gross
+failures rather than subtle per-glyph drift. Enabling it adds a second capture
+per page plus the pdf.js render, so it is opt-in.
 
 `pdfjs-dist` is an **optional peer dependency**: install it only if you enable
 self-check. It is loaded via dynamic import, so it never enters your bundle

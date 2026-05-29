@@ -15,6 +15,7 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
 
   const rasterFormat = opts.rasterFormat ?? 'jpeg'
   const jpegQuality = opts.jpegQuality ?? 0.85
+  const wantGroundTruth = opts.selfCheck?.enabled ?? false
   const resolverWarnings: string[] = []
 
   // Walk + capture every page concurrently. capture (rasterization) is the
@@ -31,6 +32,19 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
         async () => extractSpans(page),
         (durationMs) => opts.onTiming?.({ stage: 'walk', page: i + 1, durationMs }),
       )
+      // Self-check needs a ground-truth raster — the page exactly as rendered,
+      // text included — to diff against. Capture it before the suppressed
+      // raster (which toggles the transparency class on this page) so the two
+      // don't interfere; across pages they still run concurrently.
+      const groundTruth = wantGroundTruth
+        ? await captureRaster(page, {
+            format: rasterFormat,
+            quality: jpegQuality,
+            width: opts.source.width,
+            height: opts.source.height,
+            suppressText: false,
+          })
+        : null
       const raster = await measure(
         async () =>
           captureRaster(page, {
@@ -41,7 +55,7 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
           }),
         (durationMs) => opts.onTiming?.({ stage: 'capture', page: i + 1, durationMs }),
       )
-      return { spans, raster }
+      return { spans, raster, groundTruth }
     }),
   )
   const pageSpans: TextSpan[][] = perPage.map((p) => p.spans)
@@ -89,18 +103,21 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
   )
 
   // Opt-in self-check: render the PDF back to pixels and diff against the
-  // capture rasters so rendering drift becomes a visible warning rather than a
-  // silent mismatch. Failures here never sink generation — they only warn.
+  // ground-truth rasters (page as rendered, text included). A faithful render
+  // diffs low; a page that lost text — e.g. a font that didn't embed — diffs
+  // high against the text-bearing ground truth, so the signal points the right
+  // way. Failures here never sink generation; they only warn.
   let selfCheck: SelfCheckPageResult[] | undefined
   const selfCheckWarnings: string[] = []
   if (opts.selfCheck?.enabled) {
+    const groundTruth = perPage.map((p) => p.groundTruth).filter((r): r is Uint8Array => r !== null)
     selfCheck = await measure(
       async () =>
         runSelfCheck({
           pdfBytes: emitResult.bytes,
-          pageRasters,
+          pageRasters: groundTruth,
           rasterFormat,
-          threshold: opts.selfCheck?.threshold ?? 0.02,
+          threshold: opts.selfCheck?.threshold ?? 0.1,
           deps: defaultSelfCheckDeps(),
           onWarning: (msg) => selfCheckWarnings.push(msg),
         }),

@@ -1,9 +1,16 @@
 /**
  * Phase 3 self-check: render the generated PDF back to pixels and pixel-diff it
- * against the capture-phase raster. A page that diverges beyond the threshold
- * surfaces as a warning — turning otherwise-silent rendering drift (a missing
- * font, an unsupported CSS feature the vector layer mishandled) into a
- * *detectable* failure, per the project's visible-degradation invariant.
+ * against a reference raster of the page as it actually renders (text included
+ * — domToPdf passes a ground-truth capture, not the text-suppressed embedding
+ * raster, so a page that lost text diffs *higher*, not lower). A page that
+ * diverges beyond the threshold surfaces as a warning — turning otherwise-
+ * silent rendering drift (a missing font, an unsupported CSS feature the vector
+ * layer mishandled) into a *detectable* failure, per the visible-degradation
+ * invariant.
+ *
+ * Caveat: a whole-page mean-abs diff is blunt — text occupies a small fraction
+ * of most pages, so it flags gross failures (a page largely wrong) rather than
+ * subtle ones. SSIM / region-localized diffing is the future refinement.
  *
  * The pixel math (`meanPixelDiff`) and orchestration (`runSelfCheck`) are pure
  * and dependency-injected so they unit-test without pdf.js or a real canvas.
@@ -65,7 +72,7 @@ export interface RunSelfCheckArgs {
 }
 
 /**
- * Compare every generated PDF page against its capture-phase raster. Returns
+ * Compare every generated PDF page against its reference raster. Returns
  * one result per successfully compared page; a page whose decode/render throws
  * is skipped with a warning (self-check must never sink the whole generation).
  */

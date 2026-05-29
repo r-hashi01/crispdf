@@ -25,7 +25,8 @@ Initial public package for `@vellum/core`.
 ### Quality / safety
 - `validate(pages)` static pre-flight: errors for raster-only `<canvas>`/`<video>`,
   warnings for blend/filter/sticky/3D-transform CSS.
-- Opt-in self-check: re-render with pdf.js and pixel-diff each page against the
-  capture raster (`pdfjs-dist` optional peer dependency).
+- Opt-in self-check: re-render with pdf.js and pixel-diff each page against a
+  ground-truth raster (page as rendered, text included), so a page that lost
+  text diffs higher rather than lower (`pdfjs-dist` optional peer dependency).
 - Timing (`onTiming`) and warning callbacks throughout; failures stay visible,
   never silent.
