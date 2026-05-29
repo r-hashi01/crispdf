@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { decodeWoff2ToSfnt } from '../woff2-decoder'
 import { CidFontHandle } from './cid-font'
 import { PdfDict, PdfName } from './object'
 import { PdfWriter } from './writer'
@@ -6,10 +7,14 @@ import { PdfWriter } from './writer'
 const INTER_LATIN =
   'https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2'
 
-async function fetchInterBytes(): Promise<Uint8Array> {
+async function fetchInterWoff2Bytes(): Promise<Uint8Array> {
   const res = await fetch(INTER_LATIN)
   if (!res.ok) throw new Error(`fetch fixture failed: ${res.status}`)
   return new Uint8Array(await res.arrayBuffer())
+}
+
+async function fetchInterSfntBytes(): Promise<Uint8Array> {
+  return await decodeWoff2ToSfnt(await fetchInterWoff2Bytes())
 }
 
 const dec = new TextDecoder('latin1')
@@ -24,7 +29,7 @@ function dump(writer: PdfWriter, fontRef: ReturnType<() => CidFontHandle>['ref']
 
 describe('CidFontHandle', () => {
   it('finalize() assigns a Type 0 font dict with Identity-H + CID descendant', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     // Encode something so /W is non-trivial; the structural shape doesn't
@@ -39,7 +44,7 @@ describe('CidFontHandle', () => {
   })
 
   it('declares /CIDSystemInfo and a /CIDToGIDMap on the descendant', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     handle.encode('A')
@@ -52,7 +57,7 @@ describe('CidFontHandle', () => {
   })
 
   it('embeds the font bytes as a FontFile2 (TTF) or FontFile3 (CFF) stream', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     handle.encode('A')
@@ -61,8 +66,19 @@ describe('CidFontHandle', () => {
     expect(text).toMatch(/\/FontFile[23]/)
   })
 
+  it('adds /Length1 on FontFile2 streams for TrueType compatibility', async () => {
+    const bytes = await fetchInterSfntBytes()
+    const writer = new PdfWriter()
+    const handle = new CidFontHandle(writer, bytes)
+    handle.encode('A')
+    handle.finalize()
+    const text = dump(writer, handle.ref)
+    expect(text).toMatch(/\/FontFile2/)
+    expect(text).toMatch(/\/Length1\s+\d+/)
+  })
+
   it('emits a /ToUnicode CMap that maps each used gid back to its Unicode code point', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     handle.encode('A')
@@ -76,7 +92,7 @@ describe('CidFontHandle', () => {
   })
 
   it('emits a /W array entry for every glyph encode() produced', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     handle.encode('AB')
@@ -89,11 +105,12 @@ describe('CidFontHandle', () => {
   })
 
   it('subsets the font so the saved doc never contains the original woff2 magic', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterWoff2Bytes()
     // Sanity: input really is woff2.
     expect(new TextDecoder('latin1').decode(bytes.slice(0, 4))).toBe('wOF2')
+    const sfnt = await decodeWoff2ToSfnt(bytes)
     const writer = new PdfWriter()
-    const handle = new CidFontHandle(writer, bytes)
+    const handle = new CidFontHandle(writer, sfnt)
     handle.encode('Hi')
     handle.finalize()
     const out = dump(writer, handle.ref)
@@ -121,8 +138,9 @@ describe('CidFontHandle', () => {
     expect(urls.length).toBeGreaterThan(0)
     for (const url of urls) {
       const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer())
+      const sfnt = await decodeWoff2ToSfnt(bytes)
       const writer = new PdfWriter()
-      const handle = new CidFontHandle(writer, bytes)
+      const handle = new CidFontHandle(writer, sfnt)
       // No-op; just must not throw.
       handle.encode('Hello world Cześć Привет')
       expect(() => handle.finalize()).not.toThrow()
@@ -130,7 +148,7 @@ describe('CidFontHandle', () => {
   })
 
   it('uses a CIDToGIDMap stream (not /Identity) once a subset remaps gids', async () => {
-    const bytes = await fetchInterBytes()
+    const bytes = await fetchInterSfntBytes()
     const writer = new PdfWriter()
     const handle = new CidFontHandle(writer, bytes)
     handle.encode('AB')
@@ -139,5 +157,11 @@ describe('CidFontHandle', () => {
     // Either /Identity OR an indirect stream ref; for a subsetted font the
     // gids in the stream are renumbered, so the map must be a stream.
     expect(text).toMatch(/\/CIDToGIDMap\s+\d+\s+\d+\s+R/)
+  })
+
+  it('rejects raw WOFF2 bytes at the PDF-writer boundary', async () => {
+    const bytes = await fetchInterWoff2Bytes()
+    const writer = new PdfWriter()
+    expect(() => new CidFontHandle(writer, bytes)).toThrow(/decoded SFNT/i)
   })
 })

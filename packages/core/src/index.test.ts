@@ -75,7 +75,28 @@ describe('extractSpans', () => {
     expect(span?.x).toBeLessThan(100)
     expect(span?.y).toBeGreaterThanOrEqual(0)
     expect(span?.y).toBeLessThan(100)
+    expect(span?.direction).toBe('ltr')
     expect(span?.color).toEqual({ r: 34 / 255, g: 34 / 255, b: 34 / 255, a: 1 })
+  })
+
+  it('captures rtl direction from computed style', () => {
+    const page = makePage(
+      '<p style="direction: rtl; font-size: 24px; margin: 20px;">السَّلامُ عَلَيْكُمْ</p>',
+    )
+    const spans = extractSpans(page)
+    expect(spans.length).toBeGreaterThan(0)
+    expect(spans.every((s) => s.direction === 'rtl')).toBe(true)
+  })
+
+  it('merges bidi rect fragments on the same line before assigning span width', () => {
+    const page = makePage(
+      '<p style="direction: rtl; font-size: 24px; margin: 20px;">السَّلامُ عَلَيْكُمْ — رقم 2026/05/08 — تجربة PDF</p>',
+    )
+    const spans = extractSpans(page)
+    expect(spans.length).toBeGreaterThan(0)
+    // Without rect-fragment merge, some engines report only the first bidi
+    // fragment width here (tens of px), which shifts the PDF overlay run.
+    expect(spans[0]?.w ?? 0).toBeGreaterThan(180)
   })
 
   it('skips hidden text', () => {
@@ -297,6 +318,37 @@ describe('domToPdf (PoC)', () => {
       expect(fonts).toContain('Helvetica')
     } finally {
       fetchSpy.mockRestore()
+      style.remove()
+    }
+  })
+
+  it('decodes WOFF2 @font-face bytes before embedding so the final PDF contains no raw wOF2 stream', async () => {
+    const style = document.createElement('style')
+    style.textContent = `
+      @font-face {
+        font-family: 'IntegrationInter';
+        font-weight: 400;
+        font-style: normal;
+        src: url('https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2') format('woff2');
+      }
+    `
+    document.head.appendChild(style)
+    try {
+      const page = makePage(
+        '<p style="font-family: IntegrationInter, sans-serif; font-size: 24px; margin: 24px;">Adobe compatible WOFF2 decode</p>',
+      )
+      const result = await domToPdf({
+        pages: [page],
+        source: { width: 800, height: 600 },
+        output: { width: 400, height: 300, unit: 'pt' },
+      })
+      expect(result.warnings).toEqual([])
+      const bytes = new Uint8Array(await result.blob.arrayBuffer())
+      const rawPdf = new TextDecoder('latin1').decode(bytes)
+      expect(rawPdf).not.toContain('wOF2')
+      expect(rawPdf).toMatch(/\/FontFile[23]/)
+      expect(rawPdf).toMatch(/\/ToUnicode/)
+    } finally {
       style.remove()
     }
   })

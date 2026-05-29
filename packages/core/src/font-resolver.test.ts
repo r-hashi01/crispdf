@@ -24,8 +24,8 @@ function span(
   }
 }
 
-const interBytes = new Uint8Array([0x00, 0x01, 0x00, 0x00]) // arbitrary stub payload
-const interBoldBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef])
+const interBytes = new Uint8Array([0x00, 0x01, 0x00, 0x00, 0x01]) // SFNT stub
+const interBoldBytes = new Uint8Array([0x4f, 0x54, 0x54, 0x4f, 0x02]) // OTF stub
 
 function makeFetch(map: Record<string, Uint8Array>) {
   return vi.fn(async (input: RequestInfo | URL) => {
@@ -130,12 +130,12 @@ describe('resolveWebFonts', () => {
       unicodeRange: [{ start: 0x0400, end: 0x04ff }],
     }
     const fetchFn = makeFetch({
-      [latin.src]: new Uint8Array([1]),
-      [latinExt.src]: new Uint8Array([2]),
-      [cyrillic.src]: new Uint8Array([3]),
+      [latin.src]: new Uint8Array([0x00, 0x01, 0x00, 0x00, 1]),
+      [latinExt.src]: new Uint8Array([0x00, 0x01, 0x00, 0x00, 2]),
+      [cyrillic.src]: new Uint8Array([0x00, 0x01, 0x00, 0x00, 3]),
     })
     const candidates = await resolveWebFonts({
-      pageSpans: [[span('Inter, sans-serif')]],
+      pageSpans: [[span('Inter, sans-serif', 400, 'normal', 'xĀЖ')]],
       rules: [latin, latinExt, cyrillic],
       fetch: fetchFn,
     })
@@ -143,6 +143,86 @@ describe('resolveWebFonts', () => {
     expect(fetchFn).toHaveBeenCalledTimes(3)
     const ranges = candidates.map((c) => c.unicodeRange?.[0]?.start ?? -1).sort((a, b) => a - b)
     expect(ranges).toEqual([0, 0x100, 0x400])
+  })
+
+  it('skips unicode-range subsets that cannot cover any used code point', async () => {
+    const latin: FontFaceRule = {
+      family: 'inter',
+      weight: 400,
+      style: 'normal',
+      src: 'https://fonts.gstatic.com/s/inter/latin.woff2',
+      unicodeRange: [{ start: 0, end: 0x024f }],
+    }
+    const cyrillic: FontFaceRule = {
+      family: 'inter',
+      weight: 400,
+      style: 'normal',
+      src: 'https://fonts.gstatic.com/s/inter/cyrillic.woff2',
+      unicodeRange: [{ start: 0x0400, end: 0x04ff }],
+    }
+    const fetchFn = makeFetch({
+      [latin.src]: new Uint8Array([0x00, 0x01, 0x00, 0x00, 1]),
+      [cyrillic.src]: new Uint8Array([0x00, 0x01, 0x00, 0x00, 2]),
+    })
+    const candidates = await resolveWebFonts({
+      pageSpans: [[span('Inter, sans-serif', 400, 'normal', 'only latin')]],
+      rules: [latin, cyrillic],
+      fetch: fetchFn,
+    })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0]?.unicodeRange).toEqual(latin.unicodeRange)
+    expect(fetchFn).toHaveBeenCalledOnce()
+    expect(fetchFn).toHaveBeenCalledWith(latin.src)
+  })
+
+  it('starts unique unicode-range font fetches in parallel while preserving candidate order', async () => {
+    const rules: FontFaceRule[] = [
+      {
+        family: 'inter',
+        weight: 400,
+        style: 'normal',
+        src: 'https://fonts.gstatic.com/s/inter/latin.woff2',
+        unicodeRange: [{ start: 0, end: 0x024f }],
+      },
+      {
+        family: 'inter',
+        weight: 400,
+        style: 'normal',
+        src: 'https://fonts.gstatic.com/s/inter/latin-ext.woff2',
+        unicodeRange: [{ start: 0x0100, end: 0x024f }],
+      },
+      {
+        family: 'inter',
+        weight: 400,
+        style: 'normal',
+        src: 'https://fonts.gstatic.com/s/inter/cyrillic.woff2',
+        unicodeRange: [{ start: 0x0400, end: 0x04ff }],
+      },
+    ]
+    const pending: Array<() => void> = []
+    const fetchFn = vi.fn(
+      async () =>
+        new Promise<Response>((resolve) => {
+          pending.push(() => resolve(new Response(interBytes.slice().buffer, { status: 200 })))
+        }),
+    )
+
+    const result = resolveWebFonts({
+      pageSpans: [[span('Inter, sans-serif', 400, 'normal', 'xĀЖ')]],
+      rules,
+      fetch: fetchFn,
+    })
+
+    await Promise.resolve()
+    expect(fetchFn).toHaveBeenCalledTimes(3)
+
+    pending[1]?.()
+    pending[2]?.()
+    pending[0]?.()
+
+    const candidates = await result
+    expect(candidates).toHaveLength(3)
+    expect(candidates.map((c) => c.unicodeRange?.[0]?.start ?? -1)).toEqual([0, 0x100, 0x400])
   })
 
   it('treats a fetch failure as a soft fallback (no throw, warning emitted, std font used downstream)', async () => {
@@ -157,6 +237,58 @@ describe('resolveWebFonts', () => {
     expect(result).toEqual([])
     expect(onWarning).toHaveBeenCalledOnce()
     expect(onWarning.mock.calls[0]?.[0]).toMatch(/inter/i)
+  })
+
+  it('decodes fetched WOFF2 bytes to SFNT before returning candidates', async () => {
+    const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x00, 0x01, 0x02, 0x03])
+    const sfnt = new Uint8Array([0x00, 0x01, 0x00, 0x00, 0xaa])
+    const fetchFn = makeFetch({ [interRule.src]: woff2 })
+    const decodeWoff2 = vi.fn(async (input: Uint8Array) => {
+      expect(input).toEqual(woff2)
+      return sfnt
+    })
+    const result = await resolveWebFonts({
+      pageSpans: [[span('Inter, sans-serif')]],
+      rules: [interRule],
+      fetch: fetchFn,
+      decodeWoff2,
+    })
+    expect(decodeWoff2).toHaveBeenCalledOnce()
+    expect(result).toHaveLength(1)
+    expect(result[0]?.bytes).toEqual(sfnt)
+  })
+
+  it('skips a WOFF2 rule when decode fails and reports a warning', async () => {
+    const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x00])
+    const fetchFn = makeFetch({ [interRule.src]: woff2 })
+    const onWarning = vi.fn()
+    const result = await resolveWebFonts({
+      pageSpans: [[span('Inter, sans-serif')]],
+      rules: [interRule],
+      fetch: fetchFn,
+      decodeWoff2: vi.fn(async () => {
+        throw new Error('decoder exploded')
+      }),
+      onWarning,
+    })
+    expect(result).toEqual([])
+    expect(onWarning).toHaveBeenCalledOnce()
+    expect(onWarning.mock.calls[0]?.[0]).toMatch(/WOFF2/i)
+  })
+
+  it('skips non-SFNT and non-WOFF2 payloads (e.g. WOFF1) to keep embedding Adobe-compatible', async () => {
+    const woff1 = new Uint8Array([0x77, 0x4f, 0x46, 0x46, 0x00, 0x01]) // "wOFF"
+    const fetchFn = makeFetch({ [interRule.src]: woff1 })
+    const onWarning = vi.fn()
+    const result = await resolveWebFonts({
+      pageSpans: [[span('Inter, sans-serif')]],
+      rules: [interRule],
+      fetch: fetchFn,
+      onWarning,
+    })
+    expect(result).toEqual([])
+    expect(onWarning).toHaveBeenCalledOnce()
+    expect(onWarning.mock.calls[0]?.[0]).toMatch(/unsupported font container/i)
   })
 })
 

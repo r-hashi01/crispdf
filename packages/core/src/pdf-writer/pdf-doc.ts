@@ -112,7 +112,15 @@ export class Page {
    * background still shows them, so the failure is *visible* to a reader who
    * tries to copy/paste, never silently substituted.
    */
-  drawText(text: string, font: FontHandle, x: number, y: number, fontSize: number): void {
+  drawText(
+    text: string,
+    font: FontHandle,
+    x: number,
+    y: number,
+    fontSize: number,
+    direction: 'ltr' | 'rtl' = 'ltr',
+    color?: { r: number; g: number; b: number },
+  ): void {
     let name = this.data.fonts.get(font.ref)
     if (!name) {
       name = `F${this.data.nextFontId++}`
@@ -126,13 +134,17 @@ export class Page {
     } else {
       // CID-keyed: fontkit lays out the run, encode() returns Identity-H gids
       // and tracks them so the font's /W + /ToUnicode reflect actual usage.
-      textBytes = font.encode(text).bytes
+      textBytes = font.encode(text, direction).bytes
     }
     if (textBytes.length === 0) return
     const hex = bytesToHex(textBytes)
+    const fill = color
+      ? `${formatColor(color.r)} ${formatColor(color.g)} ${formatColor(color.b)} rg\n`
+      : ''
     const op =
       `BT\n` +
       `/${name} ${formatNumber(fontSize)} Tf\n` +
+      fill +
       `1 0 0 1 ${formatNumber(x)} ${formatNumber(y)} Tm\n` +
       `<${hex}> Tj\n` +
       `ET\n`
@@ -244,8 +256,8 @@ export class PdfDoc {
   }
 
   /**
-   * Embed a CID-keyed (Type 0) font from raw font bytes (TTF / OTF / WOFF /
-   * WOFF2 — fontkit handles the unwrapping). Returns a handle that drawText
+   * Embed a CID-keyed (Type 0) font from decoded SFNT bytes (TTF / OTF).
+   * WOFF2 must be decoded before this boundary. Returns a handle that drawText
    * uses to lay out runs; the font's /W array and /ToUnicode CMap are
    * generated at save() based on the glyphs that actually got drawn.
    *
@@ -416,6 +428,11 @@ function formatNumber(n: number): string {
   // Match PdfNumber's serialization (clamped to 6 decimal places).
   const r = Math.round(n * 1e6) / 1e6
   return Number.isInteger(r) ? `${r}` : `${r}`
+}
+
+function formatColor(n: number): string {
+  const clamped = Math.min(1, Math.max(0, n))
+  return formatNumber(clamped)
 }
 
 function mergeBytes(parts: Uint8Array[]): Uint8Array {

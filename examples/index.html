@@ -8,7 +8,7 @@
     <link
       rel="stylesheet"
       crossorigin="anonymous"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+Arabic:wght@400;700&family=Noto+Sans+Devanagari:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Math&family=Noto+Sans+Symbols+2&display=swap"
     />
     <style>
       body {
@@ -83,6 +83,45 @@
         max-height: 300px;
         overflow: auto;
       }
+      .stress-title {
+        font-size: 42px;
+        margin: 40px 48px 0;
+      }
+      .stress-row {
+        margin: 12px 48px;
+        font-size: 20px;
+        line-height: 1.35;
+        color: #222;
+      }
+      .stress-label {
+        display: inline-block;
+        min-width: 130px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #4a5568;
+        vertical-align: top;
+        margin-top: 5px;
+      }
+      .stress-text {
+        display: inline-block;
+        max-width: 560px;
+      }
+      .stress-divider {
+        height: 1px;
+        background: #ddd;
+        margin: 10px 48px;
+      }
+      .emoji-strip {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .emoji-icon {
+        width: 28px;
+        height: 28px;
+        display: inline-block;
+      }
     </style>
   </head>
   <body>
@@ -105,7 +144,7 @@
     <div class="slide" data-slide>
       <h1>Two slides, three stages</h1>
       <p>
-        Each slide flows through capture → walk → emit. Per-stage timing is
+        Each slide flows through capture -> walk -> emit. Per-stage timing is
         printed below so you can see where the wall-clock goes.
       </p>
     </div>
@@ -146,7 +185,140 @@
         const code = "this line should embed as Courier";
       </p>
       <p style="font-family: Arial, sans-serif; font-weight: 700; font-size: 22px; margin: 24px 60px">
-        Sans-serif bold paragraph → Helvetica-Bold.
+        Sans-serif bold paragraph maps to Helvetica-Bold.
+      </p>
+    </div>
+
+    <div class="slide" data-slide style="background: #fff">
+      <h1 class="stress-title" style="font-family: Inter, sans-serif; font-weight: 700">
+        Adobe Stress A: shaping / ligature / bidi
+      </h1>
+      <div class="stress-row" style="font-family: Inter, sans-serif">
+        <span class="stress-label">Ligature</span>
+        <span class="stress-text">office affine profile shuffle official first fi fl ffi ffl</span>
+      </div>
+      <div class="stress-row" style="font-family: Inter, sans-serif">
+        <span class="stress-label">Combining</span>
+        <span class="stress-text">ñ ā ë ŏ ű Ż ḱ (precomposed diacritics sequence)</span>
+      </div>
+      <div class="stress-divider"></div>
+      <div class="stress-row" style="font-family: 'Noto Sans Arabic', sans-serif; direction: rtl">
+        <span class="stress-label">Arabic RTL</span>
+        <span class="stress-text">السَّلامُ عَلَيْكُمْ — رقم 2026/05/08 — تجربة PDF</span>
+      </div>
+      <div class="stress-row" style="font-family: 'Noto Sans Devanagari', sans-serif">
+        <span class="stress-label">Devanagari</span>
+        <span class="stress-text">प्रयोग: क्षेत्र, शक्ति, कर्म, विद्यालय, संपर्क</span>
+      </div>
+      <div class="stress-row" style="font-family: 'Noto Sans JP', sans-serif">
+        <span class="stress-label">Japanese</span>
+        <span class="stress-text">漢字かな交じり文: 高橋, 崎, 令和, 吉野家, 句読点。</span>
+      </div>
+    </div>
+
+    <div class="slide" data-slide style="background: #f7fafc">
+      <h1 class="stress-title" style="font-family: Inter, sans-serif; font-weight: 700">
+        Adobe Stress B: emoji / surrogate / mixed run
+      </h1>
+      <div class="stress-row" style="font-family: Inter, sans-serif">
+        <span class="stress-label">Emoji ZWJ</span>
+        <span class="stress-text"
+          ><span class="emoji-strip">
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="family icon">
+              <title>family icon</title>
+              <circle cx="7" cy="10" r="4" fill="#f9c59b" />
+              <circle cx="21" cy="10" r="4" fill="#f4b183" />
+              <circle cx="14" cy="8" r="3.4" fill="#f8d1ae" />
+              <rect x="3.5" y="15" width="7" height="9" rx="2" fill="#5b8def" />
+              <rect x="17.5" y="15" width="7" height="9" rx="2" fill="#66bb6a" />
+              <rect x="11" y="13.5" width="6" height="10.5" rx="2" fill="#ffb74d" />
+            </svg>
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="coder icon">
+              <title>coder icon</title>
+              <circle cx="10" cy="9" r="4" fill="#f5c79f" />
+              <rect x="6" y="14" width="8" height="9" rx="2" fill="#8e7cc3" />
+              <rect x="14.5" y="14" width="10" height="7" rx="1.5" fill="#90a4ae" />
+              <rect x="15.5" y="15" width="8" height="4.5" rx="0.8" fill="#263238" />
+              <rect x="18" y="21.2" width="3" height="1.2" rx="0.6" fill="#607d8b" />
+            </svg>
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="astronaut icon">
+              <title>astronaut icon</title>
+              <circle cx="12" cy="11" r="4" fill="#f5c79f" />
+              <circle cx="12" cy="11" r="7.2" fill="none" stroke="#cfd8dc" stroke-width="2.2" />
+              <rect x="7.8" y="16" width="8.4" height="8" rx="2" fill="#b0bec5" />
+              <path d="M19 9l5-2v4z" fill="#78909c" />
+            </svg>
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="handshake icon">
+              <title>handshake icon</title>
+              <rect x="2.5" y="11.5" width="11" height="6" rx="2.8" fill="#f7c89b" transform="rotate(-18 8 14.5)" />
+              <rect x="14.5" y="10.5" width="11" height="6" rx="2.8" fill="#d79b6d" transform="rotate(18 20 13.5)" />
+              <rect x="11" y="12" width="6" height="4.2" rx="1.5" fill="#efb381" />
+            </svg>
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="heart fire icon">
+              <title>heart fire icon</title>
+              <path
+                d="M14 23c-6.4-3.7-9.2-6.4-9.2-10.4 0-2.8 2.2-5 5-5 1.8 0 3.5.9 4.2 2.4.7-1.5 2.4-2.4 4.2-2.4 2.8 0 5 2.2 5 5 0 4-2.8 6.7-9.2 10.4z"
+                fill="#ef5350"
+              />
+              <path d="M18.2 19.8c-.1-1.4.7-2.6 1.8-3.4-.1 1.1.2 1.6.8 2 .3-.9.9-1.5 1.7-2 .3 1.7-.3 3.4-1.7 4.4-.8.6-1.8.8-2.6.6z" fill="#ffca28" />
+            </svg>
+            <svg class="emoji-icon" viewBox="0 0 28 28" aria-label="plane icon">
+              <title>plane icon</title>
+              <path d="M3 14l22-8-6 9 6 7-22-8 7-1z" fill="#42a5f5" />
+              <rect x="9" y="12.5" width="8" height="2.5" rx="1.2" fill="#90caf9" />
+            </svg>
+          </span></span
+        >
+      </div>
+      <div class="stress-row" style="font-family: Inter, sans-serif">
+        <span class="stress-label">Non-BMP</span>
+        <span class="stress-text">
+          U+20BB7: <span style="font-family: 'Noto Sans JP', sans-serif">𠮷</span> / U+29E3D:
+          <span style="font-family: 'Noto Sans JP', sans-serif">𩸽</span> / Math:
+          <span style="font-family: 'Noto Sans Math', 'Noto Sans Symbols 2', sans-serif"
+            >𝕬𝖉𝖔𝖇𝖊 𝓟𝓓𝓕</span
+          >
+        </span>
+      </div>
+      <div class="stress-divider"></div>
+      <div class="stress-row">
+        <span class="stress-label">Mixed Run</span>
+        <span class="stress-text">
+          <span style="display: inline-block; margin-right: 8px; font-family: Inter, sans-serif"
+            >Latin</span
+          >
+          <span
+            style="display: inline-block; margin-right: 8px; font-family: 'Noto Sans JP', sans-serif"
+            >日本語</span
+          >
+          <span
+            style="
+              display: inline-block;
+              margin-right: 8px;
+              font-family: 'Noto Sans Arabic', sans-serif;
+              direction: rtl;
+              unicode-bidi: isolate;
+            "
+            >العربية</span
+          >
+          <span
+            style="
+              display: inline-block;
+              margin-right: 8px;
+              font-family: 'Noto Sans Devanagari', sans-serif;
+            "
+            >देवनागरी</span
+          >
+          <span
+            style="display: inline-block; margin-right: 8px; font-family: Inter, sans-serif; font-weight: 700"
+            >BOLD</span
+          >
+          <span style="font-family: Inter, sans-serif; font-style: italic"> italic</span>
+        </span>
+      </div>
+      <p style="margin: 24px 48px; color: #4a5568; font: 14px/1.4 Menlo, monospace">
+        Intention: if CID mapping / ToUnicode / shaping fallback is fragile, Acrobat is likely to show
+        missing glyphs, wrong joins, or copy-paste corruption on this page.
       </p>
     </div>
 

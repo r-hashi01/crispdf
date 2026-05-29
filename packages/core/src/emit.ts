@@ -102,6 +102,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
     interface DrawRun {
       font: AnyFont
       text: string
+      direction: 'ltr' | 'rtl'
       widthDom: number
     }
     interface SpanPlan {
@@ -115,14 +116,25 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
       const stdKey = pickStandardFont(span)
       const stdHandle = getStandardFont(stdKey)
       const fontSizePt = span.fontSize * scaleY
-      const runs = splitIntoRuns(span.text, candidates, cidFonts, stdHandle)
+      const runs = splitIntoRuns(
+        span.text,
+        candidates,
+        cidFonts,
+        stdHandle,
+        span.direction ?? 'ltr',
+      )
       const drawRuns: DrawRun[] = []
       for (const r of runs) {
         if (r.font.kind === 'cid') {
-          const enc = r.font.encode(r.text)
+          const enc = r.font.encode(r.text, r.direction)
           if (enc.bytes.length > 0) {
             const widthPt = (enc.widthUnits * fontSizePt) / 1000
-            drawRuns.push({ font: r.font, text: r.text, widthDom: widthPt / scaleX })
+            drawRuns.push({
+              font: r.font,
+              text: r.text,
+              direction: r.direction,
+              widthDom: widthPt / scaleX,
+            })
             continue
           }
           // CID layout failed (encode emitted a warning). Try the span's
@@ -130,13 +142,23 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
           const fallback = measureStandardFont(stdKey as StandardFontName, r.text, fontSizePt)
           for (const ch of fallback.unencodable) unencodableStandard.add(ch)
           if (fallback.widthPt > 0) {
-            drawRuns.push({ font: stdHandle, text: r.text, widthDom: fallback.widthPt / scaleX })
+            drawRuns.push({
+              font: stdHandle,
+              text: r.text,
+              direction: r.direction,
+              widthDom: fallback.widthPt / scaleX,
+            })
           }
         } else {
           const m = measureStandardFont(stdKey as StandardFontName, r.text, fontSizePt)
           for (const ch of m.unencodable) unencodableStandard.add(ch)
           if (m.widthPt === 0) continue
-          drawRuns.push({ font: r.font, text: r.text, widthDom: m.widthPt / scaleX })
+          drawRuns.push({
+            font: r.font,
+            text: r.text,
+            direction: r.direction,
+            widthDom: m.widthPt / scaleX,
+          })
         }
       }
       // The whole span is unencodable — skip entirely so the missing text is
@@ -158,10 +180,35 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
       // PDF drawText's y is the baseline (axis pointing up from page bottom).
       const baselineCss = sp.span.y + sp.span.h
       const baselinePdf = opts.output.height - baselineCss * scaleY
-      let runX = plan.drawnX
-      for (const run of sp.runs) {
-        page.drawText(run.text, run.font, runX * scaleX, baselinePdf, sp.span.fontSize * scaleY)
-        runX += run.widthDom
+      const direction = sp.span.direction ?? 'ltr'
+      if (direction === 'rtl') {
+        let runX = plan.drawnX + sp.totalWidthDom
+        for (const run of sp.runs) {
+          runX -= run.widthDom
+          page.drawText(
+            run.text,
+            run.font,
+            runX * scaleX,
+            baselinePdf,
+            sp.span.fontSize * scaleY,
+            run.direction,
+            sp.span.color,
+          )
+        }
+      } else {
+        let runX = plan.drawnX
+        for (const run of sp.runs) {
+          page.drawText(
+            run.text,
+            run.font,
+            runX * scaleX,
+            baselinePdf,
+            sp.span.fontSize * scaleY,
+            run.direction,
+            sp.span.color,
+          )
+          runX += run.widthDom
+        }
       }
     }
   }
@@ -181,6 +228,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
 interface RunSlice {
   font: AnyFont
   text: string
+  direction: 'ltr' | 'rtl'
 }
 
 /**
@@ -198,27 +246,239 @@ function splitIntoRuns(
   candidates: readonly WebFontCandidate[],
   cidFonts: Map<WebFontCandidate, CidFontHandle>,
   fallback: StandardFontHandle,
+  direction: 'ltr' | 'rtl' = 'ltr',
 ): RunSlice[] {
+  const directionalRuns = splitDirectionalRuns(text, direction)
+
+  // Complex RTL scripts (Arabic, Hebrew, etc.) depend on contextual shaping.
+  // Splitting per-character across unicode-range subsets breaks joins/marks.
+  // For RTL spans we pick one best CID candidate and lay out the whole run
+  // through a single shaper invocation.
+  if (direction === 'rtl') {
+    const runs: RunSlice[] = []
+    for (const dr of directionalRuns) {
+      const best = pickBestCoverageCandidate(dr.text, candidates)
+      const handle = best ? cidFonts.get(best) : null
+      runs.push({ font: handle ?? fallback, text: dr.text, direction: dr.direction })
+    }
+    return runs
+  }
+
+  // LTR paragraph with embedded RTL script (e.g. "Latin العربية BOLD"):
+  // detect the RTL segment and shape that sub-run with direction=rtl.
+  if (directionalRuns.some((r) => r.direction === 'rtl')) {
+    const out: RunSlice[] = []
+    for (const dr of directionalRuns) {
+      if (dr.direction === 'rtl') {
+        const best = pickBestCoverageCandidate(dr.text, candidates)
+        const handle = best ? cidFonts.get(best) : null
+        out.push({ font: handle ?? fallback, text: dr.text, direction: 'rtl' })
+        continue
+      }
+      out.push(...splitLtrByFont(dr.text, candidates, cidFonts, fallback))
+    }
+    return mergeAdjacentRuns(out)
+  }
+
+  return splitLtrByFont(text, candidates, cidFonts, fallback)
+}
+
+function splitLtrByFont(
+  text: string,
+  candidates: readonly WebFontCandidate[],
+  cidFonts: Map<WebFontCandidate, CidFontHandle>,
+  fallback: StandardFontHandle,
+): RunSlice[] {
+  // If one candidate fully covers this run, keep it as a single run.
+  // This avoids unnecessary per-character font switching on scripts like CJK.
+  const best = pickBestCoverageCandidate(text, candidates)
+  if (best) {
+    const covered = countCoveredCodePoints(text, best)
+    const total = countRelevantCodePoints(text)
+    const handle = cidFonts.get(best)
+    if (handle && total > 0 && covered === total) {
+      return [{ font: handle, text, direction: 'ltr' }]
+    }
+  }
+
   const runs: RunSlice[] = []
   let cur: RunSlice | null = null
-  for (const ch of text) {
-    const cp = ch.codePointAt(0) ?? 0
+  for (const cluster of splitGraphemeClusters(text)) {
+    const cps = [...cluster]
+      .map((ch) => ch.codePointAt(0) ?? 0)
+      .filter((cp) => !isIgnorableForFontPick(cp))
     let chosen: AnyFont = fallback
-    for (const c of candidates) {
-      if (rangeCoversCodePoint(c.unicodeRange, cp)) {
-        const handle = cidFonts.get(c)
-        if (handle) {
-          chosen = handle
-          break
-        }
+    if (cps.length === 0 && cur) {
+      chosen = cur.font
+    } else {
+      const full = findFullyCoveringCandidate(cps, candidates)
+      if (full) {
+        const handle = cidFonts.get(full)
+        if (handle) chosen = handle
+      } else {
+        const partial = pickBestCoverageCandidate(cluster, candidates)
+        const handle = partial ? cidFonts.get(partial) : null
+        if (handle) chosen = handle
       }
     }
     if (cur && cur.font === chosen) {
-      cur.text += ch
+      cur.text += cluster
     } else {
-      cur = { font: chosen, text: ch }
+      cur = { font: chosen, text: cluster, direction: 'ltr' }
       runs.push(cur)
     }
   }
   return runs
+}
+
+function mergeAdjacentRuns(runs: readonly RunSlice[]): RunSlice[] {
+  const merged: RunSlice[] = []
+  for (const r of runs) {
+    const last = merged[merged.length - 1]
+    if (last && last.font === r.font && last.direction === r.direction) {
+      last.text += r.text
+    } else {
+      merged.push({ ...r })
+    }
+  }
+  return merged
+}
+
+interface DirectionalTextRun {
+  text: string
+  direction: 'ltr' | 'rtl'
+}
+
+interface RawDirectionalRun {
+  text: string
+  cls: 'ltr' | 'rtl' | 'neutral'
+}
+
+const RTL_STRONG_RE =
+  /[\p{Script_Extensions=Arabic}\p{Script_Extensions=Hebrew}\p{Script_Extensions=Syriac}\p{Script_Extensions=Thaana}\p{Script_Extensions=Nko}\p{Script_Extensions=Adlam}\p{Script_Extensions=Mandaic}]/u
+const LTR_STRONG_RE = /[\p{Letter}\p{Number}]/u
+
+function splitDirectionalRuns(text: string, baseDir: 'ltr' | 'rtl'): DirectionalTextRun[] {
+  const raw: RawDirectionalRun[] = []
+  for (const ch of text) {
+    const cls = classifyDirection(ch)
+    const last = raw[raw.length - 1]
+    if (last && last.cls === cls) last.text += ch
+    else raw.push({ text: ch, cls })
+  }
+  const resolved: DirectionalTextRun[] = raw.map((r, i) => {
+    if (r.cls === 'neutral') {
+      return {
+        text: r.text,
+        // Keep neutral punctuation/numbers LTR-shaped so they are not
+        // character-reversed under a surrounding rtl paragraph.
+        direction: 'ltr',
+      }
+    }
+    return { text: r.text, direction: resolveRunDirection(raw, i, baseDir) }
+  })
+  const merged: DirectionalTextRun[] = []
+  for (const r of resolved) {
+    const last = merged[merged.length - 1]
+    if (last && last.direction === r.direction) last.text += r.text
+    else merged.push({ ...r })
+  }
+  return merged
+}
+
+function resolveRunDirection(
+  runs: readonly RawDirectionalRun[],
+  index: number,
+  baseDir: 'ltr' | 'rtl',
+): 'ltr' | 'rtl' {
+  const cls = runs[index]?.cls
+  if (cls === 'ltr' || cls === 'rtl') return cls
+
+  for (let i = index - 1; i >= 0; i--) {
+    const c = runs[i]?.cls
+    if (c === 'ltr' || c === 'rtl') return c
+  }
+  for (let i = index + 1; i < runs.length; i++) {
+    const c = runs[i]?.cls
+    if (c === 'ltr' || c === 'rtl') return c
+  }
+  return baseDir
+}
+
+function classifyDirection(ch: string): 'ltr' | 'rtl' | 'neutral' {
+  if (RTL_STRONG_RE.test(ch)) return 'rtl'
+  if (LTR_STRONG_RE.test(ch)) return 'ltr'
+  return 'neutral'
+}
+
+function pickBestCoverageCandidate(
+  text: string,
+  candidates: readonly WebFontCandidate[],
+): WebFontCandidate | null {
+  let best: WebFontCandidate | null = null
+  let bestScore = -1
+  for (const c of candidates) {
+    let score = 0
+    for (const ch of text) {
+      const cp = ch.codePointAt(0) ?? 0
+      if (rangeCoversCodePoint(c.unicodeRange, cp)) score++
+    }
+    if (score > bestScore) {
+      best = c
+      bestScore = score
+    }
+  }
+  return best
+}
+
+function countCoveredCodePoints(text: string, candidate: WebFontCandidate): number {
+  let count = 0
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (isIgnorableForFontPick(cp)) continue
+    if (rangeCoversCodePoint(candidate.unicodeRange, cp)) count++
+  }
+  return count
+}
+
+function countRelevantCodePoints(text: string): number {
+  let count = 0
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (isIgnorableForFontPick(cp)) continue
+    count++
+  }
+  return count
+}
+
+function findFullyCoveringCandidate(
+  cps: readonly number[],
+  candidates: readonly WebFontCandidate[],
+): WebFontCandidate | null {
+  for (const c of candidates) {
+    let ok = true
+    for (const cp of cps) {
+      if (!rangeCoversCodePoint(c.unicodeRange, cp)) {
+        ok = false
+        break
+      }
+    }
+    if (ok) return c
+  }
+  return null
+}
+
+function isIgnorableForFontPick(cp: number): boolean {
+  if (cp === 0x200d) return true
+  if (cp >= 0xfe00 && cp <= 0xfe0f) return true
+  if (cp >= 0xe0100 && cp <= 0xe01ef) return true
+  return false
+}
+
+function splitGraphemeClusters(text: string): string[] {
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    return [...seg.segment(text)].map((s) => s.segment)
+  }
+  return [...text]
 }

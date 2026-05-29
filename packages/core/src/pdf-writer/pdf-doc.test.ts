@@ -1,6 +1,7 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { describe, expect, it } from 'vitest'
+import { decodeWoff2ToSfnt } from '../woff2-decoder'
 import { PdfDoc } from './pdf-doc'
 
 // pdfjs-dist 5.x requires its worker. In Vite/vitest browser mode we resolve
@@ -98,11 +99,21 @@ describe('PdfDoc', () => {
     }
   })
 
+  it('emits RGB fill color for text runs when provided', () => {
+    const doc = new PdfDoc()
+    const helv = doc.embedStandardFont('Helvetica')
+    const page = doc.addPage(200, 100)
+    page.drawText('white', helv, 10, 20, 12, 'ltr', { r: 1, g: 1, b: 1 })
+    const bytes = doc.save()
+    const text = new TextDecoder('latin1').decode(bytes)
+    expect(text).toContain('1 1 1 rg')
+  })
+
   it('round-trips Latin text drawn with an embedded CID font through pdfjs getTextContent', async () => {
     const res = await fetch(
       'https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2',
     )
-    const fontBytes = new Uint8Array(await res.arrayBuffer())
+    const fontBytes = await decodeWoff2ToSfnt(new Uint8Array(await res.arrayBuffer()))
 
     const doc = new PdfDoc()
     const inter = await doc.embedCidFont(fontBytes)

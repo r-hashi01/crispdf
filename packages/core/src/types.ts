@@ -30,6 +30,8 @@ export interface TextSpan {
   /** CSS font-weight as a number (100-900). */
   fontWeight: number
   fontStyle: FontStyle
+  /** CSS inline direction (`ltr` or `rtl`), used for shaping/placement. */
+  direction?: 'ltr' | 'rtl'
   color: RGB
   letterSpacing: DomPx
 }

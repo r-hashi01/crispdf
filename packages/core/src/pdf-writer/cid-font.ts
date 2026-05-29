@@ -57,7 +57,13 @@ interface FontkitFont {
   capHeight?: number
   numGlyphs?: number
   bbox?: { minX: number; minY: number; maxX: number; maxY: number }
-  layout(text: string): FontkitGlyphRun
+  layout(
+    text: string,
+    features?: string[] | Record<string, boolean>,
+    script?: string,
+    language?: string,
+    direction?: string,
+  ): FontkitGlyphRun
   getGlyph(gid: number): FontkitGlyph
   createSubset(): FontkitSubset
 }
@@ -88,6 +94,9 @@ export class CidFontHandle {
     bytes: Uint8Array,
     options: CidFontOptions = {},
   ) {
+    if (isWoff2(bytes)) {
+      throw new Error('CidFontHandle expects decoded SFNT bytes; decode WOFF2 before embedding')
+    }
     const fk = (fontkit as unknown as { create: (b: Uint8Array) => FontkitFont }).create(bytes)
     this.font = fk
     this.cff = fk.cff !== undefined && fk.cff !== null
@@ -114,10 +123,13 @@ export class CidFontHandle {
    * and let the caller fall back to its standard-font path so the text isn't
    * silently lost.
    */
-  encode(text: string): { bytes: Uint8Array; widthUnits: number } {
+  encode(
+    text: string,
+    direction: 'ltr' | 'rtl' = 'ltr',
+  ): { bytes: Uint8Array; widthUnits: number } {
     let run: FontkitGlyphRun
     try {
-      run = this.font.layout(text)
+      run = this.font.layout(text, undefined, undefined, undefined, direction)
     } catch (err) {
       this.options.onWarning?.(
         `Layout failed for "${this.font.postscriptName ?? 'EmbeddedFont'}" on input "${truncate(text)}": ${(err as Error).message}. ` +
@@ -164,10 +176,8 @@ export class CidFontHandle {
     //   1. Re-run with EVERY glyph included. fontkit re-encoding the full
     //      font is more reliable; we lose the size win on this one font, but
     //      we still get clean sfnt bytes the reader can render with.
-    //   2. If that also fails, embed the original bytes (possibly woff2)
-    //      verbatim. The doc still saves and the ToUnicode CMap drives
-    //      copy-paste / search; visual rendering may degrade in readers that
-    //      don't unwrap woff2 themselves.
+    //   2. If that also fails, embed the original decoded SFNT bytes verbatim.
+    //      The doc still saves and the ToUnicode CMap drives copy-paste/search.
     let subsetBytes: Uint8Array
     let oldToNew: Map<number, number> | null
     const trySparse = (): { bytes: Uint8Array; map: Map<number, number> } => {
@@ -209,14 +219,14 @@ export class CidFontHandle {
         oldToNew = null
         this.options.onWarning?.(
           `Subsetting "${psName}" failed (sparse: ${(sparseErr as Error).message}; ` +
-            `full: ${(fullErr as Error).message}); embedding original font bytes verbatim. ` +
-            `Some readers may need to unwrap woff2 themselves.`,
+            `full: ${(fullErr as Error).message}); embedding original font bytes verbatim.`,
         )
       }
     }
 
     const fontFileEntries: Record<string, PdfObject> = {}
     if (this.cff) fontFileEntries.Subtype = new PdfName('OpenType')
+    else fontFileEntries.Length1 = new PdfNumber(subsetBytes.length)
     this.writer.assign(this.fontFileRef, new PdfStream(fontFileEntries, subsetBytes))
 
     this.writer.assign(
@@ -355,6 +365,16 @@ function encodeUtf16BE(cp: number): string {
 
 function truncate(s: string): string {
   return s.length > 32 ? `${s.slice(0, 32)}…` : s
+}
+
+function isWoff2(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x77 &&
+    bytes[1] === 0x4f &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x32
+  )
 }
 
 function literal(s: string): PdfObject {

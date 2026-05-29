@@ -14,6 +14,7 @@ export function extractSpans(root: HTMLElement): TextSpan[] {
     acceptNode(node) {
       const parent = node.parentElement
       if (!parent) return NodeFilter.FILTER_REJECT
+      if (parent.closest('[data-vellum-raster-text]')) return NodeFilter.FILTER_REJECT
       const text = node.nodeValue ?? ''
       if (text.trim() === '') return NodeFilter.FILTER_REJECT
       const cs = window.getComputedStyle(parent)
@@ -44,7 +45,9 @@ function pushSpansForTextNode(
 ): void {
   const range = document.createRange()
   range.selectNodeContents(text)
-  const lineRects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0)
+  const lineRects = mergeRectsByVisualLine(
+    Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0),
+  )
   if (lineRects.length === 0) return
 
   const cs = window.getComputedStyle(parent)
@@ -52,6 +55,7 @@ function pushSpansForTextNode(
   const fontSize = domPx(Number.parseFloat(cs.fontSize))
   const fontWeight = parseFontWeight(cs.fontWeight)
   const fontStyle = parseFontStyle(cs.fontStyle)
+  const direction = cs.direction === 'rtl' ? 'rtl' : 'ltr'
   const color = parseColor(cs.color)
   const letterSpacing = domPx(Number.parseFloat(cs.letterSpacing) || 0)
   const whiteSpace = cs.whiteSpace
@@ -80,6 +84,7 @@ function pushSpansForTextNode(
       fontSize,
       fontWeight,
       fontStyle,
+      direction,
       color,
       letterSpacing,
     })
@@ -143,6 +148,33 @@ function hasContentSibling(node: Node, direction: 'previous' | 'next'): boolean 
 interface Line {
   text: string
   rect: DOMRect
+}
+
+/**
+ * Browsers may return multiple rect fragments for one visual line (notably
+ * bidi runs such as Arabic + Latin + digits). For line-level extraction we
+ * need one rect per line, so we merge same-top fragments into their union.
+ */
+function mergeRectsByVisualLine(rects: DOMRect[]): DOMRect[] {
+  if (rects.length <= 1) return rects
+  const sorted = [...rects].sort((a, b) =>
+    Math.abs(a.top - b.top) < 0.1 ? a.left - b.left : a.top - b.top,
+  )
+  const out: DOMRect[] = []
+  const lineTolPx = 1
+  for (const r of sorted) {
+    const prev = out[out.length - 1]
+    if (prev && Math.abs(r.top - prev.top) <= lineTolPx) {
+      const left = Math.min(prev.left, r.left)
+      const top = Math.min(prev.top, r.top)
+      const right = Math.max(prev.right, r.right)
+      const bottom = Math.max(prev.bottom, r.bottom)
+      out[out.length - 1] = new DOMRect(left, top, right - left, bottom - top)
+      continue
+    }
+    out.push(new DOMRect(r.left, r.top, r.width, r.height))
+  }
+  return out
 }
 
 /**

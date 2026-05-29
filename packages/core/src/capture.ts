@@ -15,8 +15,21 @@ const TRANSPARENT_TEXT_CSS = `
 .${CAPTURE_CLASS}::before, .${CAPTURE_CLASS}::after,
 .${CAPTURE_CLASS} *::before, .${CAPTURE_CLASS} *::after {
   color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   -webkit-text-stroke-color: transparent !important;
   text-shadow: none !important;
+}
+
+.${CAPTURE_CLASS} [data-vellum-raster-text],
+.${CAPTURE_CLASS} [data-vellum-raster-text] *,
+.${CAPTURE_CLASS} [data-vellum-raster-text]::before,
+.${CAPTURE_CLASS} [data-vellum-raster-text]::after,
+.${CAPTURE_CLASS} [data-vellum-raster-text] *::before,
+.${CAPTURE_CLASS} [data-vellum-raster-text] *::after {
+  color: initial !important;
+  -webkit-text-fill-color: initial !important;
+  -webkit-text-stroke-color: initial !important;
+  text-shadow: initial !important;
 }
 `
 
@@ -34,11 +47,21 @@ export async function captureRaster(page: HTMLElement, opts: CaptureOptions): Pr
     await document.fonts.ready
     await nextFrame()
     await nextFrame()
-
     const dataUrl =
       opts.format === 'jpeg'
-        ? await toJpeg(page, { quality: opts.quality, width: opts.width, height: opts.height })
-        : await toPng(page, { width: opts.width, height: opts.height })
+        ? await toJpeg(page, {
+            quality: opts.quality,
+            width: opts.width,
+            height: opts.height,
+            // During capture every text glyph is forced transparent, so
+            // inlining @font-face blobs into the SVG clone is pure overhead.
+            skipFonts: true,
+          })
+        : await toPng(page, {
+            width: opts.width,
+            height: opts.height,
+            skipFonts: true,
+          })
 
     const buf = await (await fetch(dataUrl)).arrayBuffer()
     return new Uint8Array(buf)
