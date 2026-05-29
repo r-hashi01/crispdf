@@ -5,8 +5,10 @@ import { type DomPx, domPx, type FontStyle, type TextSpan } from './types'
  * Extract every visible text fragment from `root` as a flat list of
  * line-level spans. Coordinates are returned relative to `root`'s top-left.
  *
- * Phase 0 scope: HTML text only. No SVG `<text>`, no `::before`/`::after`,
- * no Shadow DOM, no iframes.
+ * Phase 0 scope: HTML text only. No SVG `<text>`, no Shadow DOM, no iframes.
+ * `::before` / `::after` generated text with literal-string `content` is
+ * extracted (Phase 2); other generated content (counters, attr(), images)
+ * stays in the raster only.
  */
 export function extractSpans(root: HTMLElement): TextSpan[] {
   const rootRect = root.getBoundingClientRect()
@@ -34,7 +36,157 @@ export function extractSpans(root: HTMLElement): TextSpan[] {
     }
     node = walker.nextNode() as Text | null
   }
+
+  // Generated content (::before / ::after) has no DOM node to walk, so a
+  // separate element pass reads it from getComputedStyle(el, pseudo).
+  const elWalker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node) {
+      const el = node as HTMLElement
+      if (el.closest('[data-vellum-raster-text]')) return NodeFilter.FILTER_REJECT
+      const cs = window.getComputedStyle(el)
+      // FILTER_REJECT prunes the whole subtree, which is what we want for
+      // display:none / visibility:hidden — its pseudos don't render either.
+      if (cs.visibility === 'hidden' || cs.display === 'none') {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  pushPseudoSpans(root, rootRect, spans)
+  let el = elWalker.nextNode() as HTMLElement | null
+  while (el !== null) {
+    pushPseudoSpans(el, rootRect, spans)
+    el = elWalker.nextNode() as HTMLElement | null
+  }
+
   return spans
+}
+
+/**
+ * Emit spans for an element's `::before` / `::after` generated text. Only
+ * literal-string `content` is handled; counters, `attr()`, `url()` images and
+ * the open/close-quote keywords are left to the raster layer.
+ *
+ * Generated boxes have no Range, so we derive geometry from the element's
+ * content-box edges and the rects of its real (DOM) content: `::before` fills
+ * the inline-start gap before the first real glyph, `::after` the inline-end
+ * gap after the last. The drawn glyph width is re-measured downstream in
+ * emit.ts; `w` here only feeds line grouping, so an approximate box is fine.
+ */
+function pushPseudoSpans(el: HTMLElement, rootRect: DOMRect, out: TextSpan[]): void {
+  for (const pseudo of ['::before', '::after'] as const) {
+    const cs = window.getComputedStyle(el, pseudo)
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue
+    const text = parsePseudoContent(cs.content)
+    if (text === null) continue
+    const direction = cs.direction === 'rtl' ? 'rtl' : 'ltr'
+    const normalized = normalizeLineWhitespace(text, cs.whiteSpace, {
+      // The boundary space toward the element's real content is meaningful
+      // for copy-paste, mirroring the inline-sibling rule for text nodes.
+      keepLeadingSpace: pseudo === '::after',
+      keepTrailingSpace: pseudo === '::before',
+    })
+    if (normalized === '') continue
+    const rect = pseudoRect(el, pseudo, direction)
+    if (!rect) continue
+    out.push({
+      text: normalized,
+      x: domPx(rect.x - rootRect.x),
+      y: domPx(rect.y - rootRect.y),
+      w: domPx(rect.width),
+      h: domPx(rect.height),
+      fontFamily: cs.fontFamily,
+      fontSize: domPx(Number.parseFloat(cs.fontSize)),
+      fontWeight: parseFontWeight(cs.fontWeight),
+      fontStyle: parseFontStyle(cs.fontStyle),
+      direction,
+      color: parseColor(cs.color),
+      letterSpacing: domPx(Number.parseFloat(cs.letterSpacing) || 0),
+    })
+  }
+}
+
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Locate the generated box for `pseudo` by measuring the inline gap between
+ * the element's content-box edge and its first/last real-content rect.
+ * Returns viewport-space coordinates, or null when no geometry can be derived.
+ */
+function pseudoRect(
+  el: HTMLElement,
+  pseudo: '::before' | '::after',
+  direction: string,
+): Box | null {
+  const elRect = el.getBoundingClientRect()
+  if (elRect.width === 0 && elRect.height === 0) return null
+  const cs = window.getComputedStyle(el)
+  const f = (v: string): number => Number.parseFloat(v) || 0
+  const contentLeft = elRect.left + f(cs.borderLeftWidth) + f(cs.paddingLeft)
+  const contentRight = elRect.right - f(cs.borderRightWidth) - f(cs.paddingRight)
+
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0)
+
+  // No real content to anchor against: fall back to the content box's first
+  // line so the glyph is at least placed inside the element.
+  if (rects.length === 0) {
+    return {
+      x: contentLeft,
+      y: elRect.top + f(cs.paddingTop),
+      width: contentRight - contentLeft,
+      height: f(cs.fontSize) * 1.2,
+    }
+  }
+
+  const rtl = direction === 'rtl'
+  if (pseudo === '::before') {
+    // Anchor to the first visual line; within it, the inline-start rect.
+    const firstTop = Math.min(...rects.map((r) => r.top))
+    const line = rects.filter((r) => Math.abs(r.top - firstTop) <= 1)
+    const anchor = rtl
+      ? line.reduce((a, b) => (b.right > a.right ? b : a))
+      : line.reduce((a, b) => (b.left < a.left ? b : a))
+    const [x, width] = rtl
+      ? [anchor.right, contentRight - anchor.right]
+      : [contentLeft, anchor.left - contentLeft]
+    return { x, y: anchor.top, width: Math.max(width, anchor.height * 0.3), height: anchor.height }
+  }
+
+  // ::after — anchor to the last visual line's inline-end rect.
+  const lastBottom = Math.max(...rects.map((r) => r.bottom))
+  const line = rects.filter((r) => Math.abs(r.bottom - lastBottom) <= 1)
+  const anchor = rtl
+    ? line.reduce((a, b) => (b.left < a.left ? b : a))
+    : line.reduce((a, b) => (b.right > a.right ? b : a))
+  const [x, width] = rtl
+    ? [contentLeft, anchor.left - contentLeft]
+    : [anchor.right, contentRight - anchor.right]
+  return { x, y: anchor.top, width: Math.max(width, anchor.height * 0.3), height: anchor.height }
+}
+
+/**
+ * Extract literal text from a computed `content` value. Returns null for
+ * `none` / `normal` / image / function / mixed-token values — anything we
+ * can't safely turn into a single text run stays in the raster layer.
+ */
+function parsePseudoContent(content: string): string | null {
+  if (!content || content === 'none' || content === 'normal') return null
+  const m = content.match(/^"((?:[^"\\]|\\.)*)"$/)
+  if (!m) return null
+  return unescapeCssString(m[1] ?? '')
+}
+
+function unescapeCssString(s: string): string {
+  return s.replace(/\\([0-9a-fA-F]{1,6}) ?|\\(.)/g, (_full, hex: string, ch: string) =>
+    hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : ch,
+  )
 }
 
 function pushSpansForTextNode(

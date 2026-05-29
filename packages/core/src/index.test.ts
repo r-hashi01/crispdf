@@ -138,6 +138,53 @@ describe('extractSpans', () => {
     expect(joined).toBe('Hello bold and code!')
   })
 
+  it('extracts ::before quoted-string content as a positioned span', () => {
+    // `content: "→ "` text is forced transparent in the raster (capture.ts
+    // suppresses *::before/::after), so if the walker ignores it the glyph
+    // vanishes from both layers — a silent content loss. Extract it as a
+    // real span placed to the left of the element's first real content.
+    const style = document.createElement('style')
+    style.textContent = '.vellum-before-fix::before { content: "\\2192 "; }'
+    document.head.appendChild(style)
+    trackedNodes.push(style)
+    const page = makePage(
+      '<p class="vellum-before-fix" style="font-size: 16px; color: black; margin: 20px;">Label</p>',
+    )
+    const spans = extractSpans(page)
+    const arrow = spans.find((s) => s.text.includes('→'))
+    const label = spans.find((s) => s.text.includes('Label'))
+    expect(arrow).toBeDefined()
+    expect(label).toBeDefined()
+    // The marker sits before the label on the same visual line.
+    expect(arrow?.x ?? Infinity).toBeLessThan(label?.x ?? 0)
+    expect(Math.abs((arrow?.y ?? 0) - (label?.y ?? 0))).toBeLessThan(2)
+    expect(arrow?.fontSize).toBeCloseTo(16, 0)
+  })
+
+  it('extracts ::after quoted-string content as a positioned span', () => {
+    const style = document.createElement('style')
+    style.textContent = '.vellum-after-fix::after { content: " ✓"; }'
+    document.head.appendChild(style)
+    trackedNodes.push(style)
+    const page = makePage(
+      '<p class="vellum-after-fix" style="font-size: 16px; color: black; margin: 20px;">Done</p>',
+    )
+    const spans = extractSpans(page)
+    const check = spans.find((s) => s.text.includes('✓'))
+    const label = spans.find((s) => s.text.includes('Done'))
+    expect(check).toBeDefined()
+    expect(label).toBeDefined()
+    // The marker sits after the label on the same visual line.
+    expect(check?.x ?? 0).toBeGreaterThan(label?.x ?? Infinity)
+    expect(Math.abs((check?.y ?? 0) - (label?.y ?? 0))).toBeLessThan(2)
+  })
+
+  it('does not emit phantom spans for content: none / normal pseudo-elements', () => {
+    const page = makePage('<p style="font-size: 16px; color: black; margin: 20px;">Plain</p>')
+    const spans = extractSpans(page)
+    expect(spans.map((s) => s.text)).toEqual(['Plain'])
+  })
+
   it('splits a wrapped paragraph into one span per visual line', () => {
     // Force wrapping with a narrow container.
     const page = makePage(
