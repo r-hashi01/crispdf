@@ -56,6 +56,14 @@
     "html-to-image": "^1.11.13",
     "woff2-encoder": "^2.0.0"
   },
+  "peerDependencies": {
+    "pdfjs-dist": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pdfjs-dist": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/fontkit": "^2.0.9",
     "@vitest/browser": "^4.1.5",

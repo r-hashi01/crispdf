@@ -281,6 +281,41 @@ describe('domToPdf (PoC)', () => {
     expect(w).toContain('→')
   })
 
+  it('runs the opt-in self-check, returning a per-page visual diff via real pdf.js', async () => {
+    // End-to-end exercise of the default self-check deps (pdf.js render +
+    // OffscreenCanvas decode) in a real browser. We assert the wiring and that
+    // pdf.js actually rendered — not an exact diff value, which depends on JPEG
+    // artifacts and font rasterization.
+    const pages = [
+      makePage('<h1 style="font-size: 28px; margin: 24px; color: #222;">Self-check A</h1>'),
+      makePage('<h1 style="font-size: 28px; margin: 24px; color: #222;">Self-check B</h1>'),
+    ]
+    const result = await domToPdf({
+      pages,
+      source: { width: 800, height: 600 },
+      output: { width: 400, height: 300, unit: 'pt' },
+      selfCheck: { enabled: true },
+    })
+    expect(result.selfCheck).toBeDefined()
+    expect(result.selfCheck).toHaveLength(2)
+    expect(result.selfCheck?.map((r) => r.page)).toEqual([1, 2])
+    for (const r of result.selfCheck ?? []) {
+      expect(r.diff).toBeGreaterThanOrEqual(0)
+      expect(r.diff).toBeLessThanOrEqual(1)
+      expect(typeof r.exceeded).toBe('boolean')
+    }
+  })
+
+  it('omits the selfCheck field when self-check is not enabled', async () => {
+    const page = makePage('<p style="font-size: 16px; margin: 24px;">no self-check</p>')
+    const result = await domToPdf({
+      pages: [page],
+      source: { width: 800, height: 600 },
+      output: { width: 400, height: 300, unit: 'pt' },
+    })
+    expect(result.selfCheck).toBeUndefined()
+  })
+
   it('embeds an on-demand CJK fallback so Japanese text is selectable (Type0 font present)', async () => {
     // Arial has no glyphs for kana/kanji and the standard PDF fonts are
     // WinAnsi-only, so without a fallback this text vanishes from the vector

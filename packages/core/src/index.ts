@@ -6,6 +6,7 @@ export type {
   FontStyle,
   PdfPt,
   RGB,
+  SelfCheckPageResult,
   TextSpan,
   TimingEvent,
 } from './types'

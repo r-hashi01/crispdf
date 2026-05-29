@@ -2,6 +2,7 @@ import { captureRaster } from './capture'
 import { emitPdf } from './emit'
 import { discoverFontFaces } from './font-discovery'
 import { resolveCjkFallback, resolveWebFonts, type WebFontCandidate } from './font-resolver'
+import { defaultSelfCheckDeps, runSelfCheck, type SelfCheckPageResult } from './self-check'
 import { measure } from './timing'
 import type { DomToPdfOptions, DomToPdfResult, TextSpan } from './types'
 import { extractSpans } from './walk'
@@ -83,10 +84,31 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
     (durationMs) => opts.onTiming?.({ stage: 'emit', durationMs }),
   )
 
+  // Opt-in self-check: render the PDF back to pixels and diff against the
+  // capture rasters so rendering drift becomes a visible warning rather than a
+  // silent mismatch. Failures here never sink generation — they only warn.
+  let selfCheck: SelfCheckPageResult[] | undefined
+  const selfCheckWarnings: string[] = []
+  if (opts.selfCheck?.enabled) {
+    selfCheck = await measure(
+      async () =>
+        runSelfCheck({
+          pdfBytes: emitResult.bytes,
+          pageRasters,
+          rasterFormat,
+          threshold: opts.selfCheck?.threshold ?? 0.02,
+          deps: defaultSelfCheckDeps(),
+          onWarning: (msg) => selfCheckWarnings.push(msg),
+        }),
+      (durationMs) => opts.onTiming?.({ stage: 'selfCheck', durationMs }),
+    )
+  }
+
   opts.onProgress?.(pages.length, pages.length)
 
   return {
     blob: new Blob([emitResult.bytes as BlobPart], { type: 'application/pdf' }),
-    warnings: [...resolverWarnings, ...emitResult.warnings],
+    warnings: [...resolverWarnings, ...emitResult.warnings, ...selfCheckWarnings],
+    ...(selfCheck ? { selfCheck } : {}),
   }
 }
