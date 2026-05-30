@@ -58,10 +58,10 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright browsers (and OS deps)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm --filter crispdf exec playwright install --with-deps chromium
+        run: pnpm --filter @astlide/crispdf exec playwright install --with-deps chromium
       - name: Install Playwright OS deps only (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm --filter crispdf exec playwright install-deps chromium
+        run: pnpm --filter @astlide/crispdf exec playwright install-deps chromium
 
       - run: pnpm test
       - run: pnpm build
@@ -70,6 +70,6 @@ jobs:
       # tarball via the id-token above. NPM_TOKEN is a repo secret (npm
       # automation/granular token with publish rights to crispdf).
       - name: Publish to npm
-        run: pnpm --filter crispdf publish --no-git-checks --provenance --access public
+        run: pnpm --filter @astlide/crispdf publish --no-git-checks --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

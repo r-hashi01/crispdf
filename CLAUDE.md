@@ -53,8 +53,8 @@ pnpm format               # biome format --write
 pnpm example              # vite-served playground in examples/ for manual visual verification
 
 # Per-package:
-pnpm --filter crispdf build
-pnpm --filter crispdf test
+pnpm --filter @astlide/crispdf build
+pnpm --filter @astlide/crispdf test
 ```
 
 First-time test runs need Playwright browsers: `pnpm exec playwright install chromium`.
@@ -68,7 +68,7 @@ First-time test runs need Playwright browsers: `pnpm exec playwright install chr
 
 Both jobs use Node from `.nvmrc` and `pnpm install --frozen-lockfile`, so the lockfile is the source of truth — never let CI run with a drifted lockfile. If you bump a dep, commit the updated `pnpm-lock.yaml` in the same PR.
 
-**CD (npm publish):** `.github/workflows/release.yml`. **Publishing happens ONLY through this workflow — never run `npm publish` / `pnpm publish` from a dev machine.** The workflow triggers on a pushed version tag `v*`, verifies the tag equals `packages/core/package.json` version, runs the full gate (lint + typecheck + test + build), then `pnpm publish --provenance --access public` using the `NPM_TOKEN` repo secret (an npm automation/granular token with publish rights to `crispdf`). npm provenance is enabled via `id-token: write`.
+**CD (npm publish):** `.github/workflows/release.yml`. **Publishing happens ONLY through this workflow — never run `npm publish` / `pnpm publish` from a dev machine.** The workflow triggers on a pushed version tag `v*`, verifies the tag equals `packages/core/package.json` version, runs the full gate (lint + typecheck + test + build), then `pnpm publish --provenance --access public` using the `NPM_TOKEN` repo secret (an npm automation/granular token with publish rights to `@astlide/crispdf`). npm provenance is enabled via `id-token: write`.
 
 Release procedure: bump `packages/core/package.json` version (the exported `VERSION` is injected from it), update `CHANGELOG.md`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow does the rest. The `NPM_TOKEN` secret must exist in repo settings before the first release.
 

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes target the latest published `0.0.x` release of `crispdf`.
+Security fixes target the latest published `0.0.x` release of `@astlide/crispdf`.
 
 ## Reporting a Vulnerability
 

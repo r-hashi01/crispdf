@@ -9,13 +9,13 @@ search, selection, and copy/paste for text that can be mapped to a PDF font.
 ## Package
 
 ```sh
-pnpm add crispdf
-# npm i crispdf
-# yarn add crispdf
+pnpm add @astlide/crispdf
+# npm i @astlide/crispdf
+# yarn add @astlide/crispdf
 ```
 
 ```ts
-import { domToPdf } from 'crispdf'
+import { domToPdf } from '@astlide/crispdf'
 
 const result = await domToPdf({
   pages: document.querySelectorAll<HTMLElement>('[data-page]'),
@@ -80,9 +80,9 @@ other fixed-size DOM layouts where preserving the visual result matters.
 ```sh
 pnpm install
 pnpm lint
-pnpm --filter crispdf typecheck
-pnpm --filter crispdf test
-pnpm --filter crispdf build
+pnpm --filter @astlide/crispdf typecheck
+pnpm --filter @astlide/crispdf test
+pnpm --filter @astlide/crispdf build
 pnpm example
 ```
 
@@ -91,7 +91,7 @@ browser.
 
 ## Repository Layout
 
-- `packages/core`: the published package, `crispdf`.
+- `packages/core`: the published package, `@astlide/crispdf`.
 - `examples`: manual browser example and compatibility stress pages.
 
 ## License

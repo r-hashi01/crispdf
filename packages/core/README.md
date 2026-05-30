@@ -9,15 +9,15 @@ search, selection, and copy/paste for text that can be mapped to a PDF font.
 ## Install
 
 ```sh
-pnpm add crispdf
-# npm i crispdf
-# yarn add crispdf
+pnpm add @astlide/crispdf
+# npm i @astlide/crispdf
+# yarn add @astlide/crispdf
 ```
 
 ## Usage
 
 ```ts
-import { domToPdf } from 'crispdf'
+import { domToPdf } from '@astlide/crispdf'
 
 const result = await domToPdf({
   pages: document.querySelectorAll<HTMLElement>('[data-page]'),
@@ -118,7 +118,7 @@ layer can't reproduce still shows in the raster, and `validate()` (before) plus
 CI or at runtime) to catch content that would lose selectable text.
 
 ```ts
-import { validate } from 'crispdf'
+import { validate } from '@astlide/crispdf'
 
 const { ok, errors, warnings } = validate(pages)
 if (!ok) {

@@ -7,9 +7,9 @@ Thanks for considering a contribution to Vellum.
 ```sh
 pnpm install
 pnpm lint
-pnpm --filter crispdf typecheck
-pnpm --filter crispdf test
-pnpm --filter crispdf build
+pnpm --filter @astlide/crispdf typecheck
+pnpm --filter @astlide/crispdf test
+pnpm --filter @astlide/crispdf build
 ```
 
 Use `pnpm example` for manual browser checks.
@@ -33,7 +33,7 @@ Font changes should preserve these invariants:
 
 ## Releases
 
-The published package is `crispdf`. **It is published only by CI** — never run
+The published package is `@astlide/crispdf`. **It is published only by CI** — never run
 `npm publish` / `pnpm publish` locally.
 
 To cut a release:
@@ -50,5 +50,5 @@ To cut a release:
 The `release.yml` workflow verifies the tag matches the package version, runs
 the full quality gate, and publishes to npm with provenance using the
 `NPM_TOKEN` repo secret. A one-time setup step: add `NPM_TOKEN` (an npm
-automation or granular access token with publish rights to `crispdf`) under
+automation or granular access token with publish rights to `@astlide/crispdf`) under
 the repository's Actions secrets.
