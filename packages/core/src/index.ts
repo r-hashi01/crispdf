@@ -12,4 +12,4 @@ export type {
 } from './types'
 export { type ValidationIssue, type ValidationResult, validate } from './validate'
 
-export const VERSION = '0.1.0'
+export const VERSION = '0.0.1'

@@ -1,6 +1,6 @@
 {
   "name": "@vellum/core",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "DOM → high-quality PDF in the browser: raster background + vector text overlay. Selectable, searchable, copyable text.",
   "author": "Ryusei Hashimoto",
   "keywords": [
