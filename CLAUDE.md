@@ -68,13 +68,9 @@ First-time test runs need Playwright browsers: `pnpm exec playwright install chr
 
 Both jobs use Node from `.nvmrc` and `pnpm install --frozen-lockfile`, so the lockfile is the source of truth — never let CI run with a drifted lockfile. If you bump a dep, commit the updated `pnpm-lock.yaml` in the same PR.
 
-**CD (npm publish):** intentionally **not wired up**. The recommended path when it's time:
+**CD (npm publish):** `.github/workflows/release.yml`. **Publishing happens ONLY through this workflow — never run `npm publish` / `pnpm publish` from a dev machine.** The workflow triggers on a pushed version tag `v*`, verifies the tag equals `packages/core/package.json` version, runs the full gate (lint + typecheck + test + build), then `pnpm publish --provenance --access public` using the `NPM_TOKEN` repo secret (an npm automation/granular token with publish rights to `crispdf`). npm provenance is enabled via `id-token: write`.
 
-- `changesets` for version + changelog management (works well with pnpm workspace)
-- A `release.yml` workflow that consumes a `NPM_TOKEN` secret to publish `crispdf`
-- The other `@vellum/*` packages stay `private: true` until their phase ships
-
-Don't add CD pre-emptively. An npm token + accidental publish on `main` is a real failure mode.
+Release procedure: bump `packages/core/package.json` version (the exported `VERSION` is injected from it), update `CHANGELOG.md`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow does the rest. The `NPM_TOKEN` secret must exist in repo settings before the first release.
 
 ## Volatile state (do NOT add it to this file)
 

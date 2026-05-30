@@ -33,4 +33,22 @@ Font changes should preserve these invariants:
 
 ## Releases
 
-The published package is `crispdf`.
+The published package is `crispdf`. **It is published only by CI** — never run
+`npm publish` / `pnpm publish` locally.
+
+To cut a release:
+
+1. Bump the version in `packages/core/package.json` (the exported `VERSION` is
+   injected from it — no other file to edit).
+2. Update `CHANGELOG.md`.
+3. Commit, then tag and push:
+   ```sh
+   git tag v0.0.1
+   git push origin v0.0.1
+   ```
+
+The `release.yml` workflow verifies the tag matches the package version, runs
+the full quality gate, and publishes to npm with provenance using the
+`NPM_TOKEN` repo secret. A one-time setup step: add `NPM_TOKEN` (an npm
+automation or granular access token with publish rights to `crispdf`) under
+the repository's Actions secrets.
