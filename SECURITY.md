@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes target the latest published `0.1.x` release of `@vellum/core`.
+Security fixes target the latest published `0.0.x` release of `crispdf`.
 
 ## Reporting a Vulnerability
 

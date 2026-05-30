@@ -1,21 +1,21 @@
-# Vellum
+# crispdf
 
 Browser-side DOM to PDF with high visual fidelity and selectable text.
 
-Vellum renders each page as a raster background, then overlays real PDF text on
+crispdf renders each page as a raster background, then overlays real PDF text on
 top. That hybrid model keeps complex HTML/CSS visually intact while preserving
 search, selection, and copy/paste for text that can be mapped to a PDF font.
 
 ## Package
 
 ```sh
-pnpm add @vellum/core
-# npm i @vellum/core
-# yarn add @vellum/core
+pnpm add crispdf
+# npm i crispdf
+# yarn add crispdf
 ```
 
 ```ts
-import { domToPdf } from '@vellum/core'
+import { domToPdf } from 'crispdf'
 
 const result = await domToPdf({
   pages: document.querySelectorAll<HTMLElement>('[data-page]'),
@@ -72,7 +72,7 @@ other fixed-size DOM layouts where preserving the visual result matters.
 - Color emoji and unsupported glyphs are still visible in the raster layer, but
   may not be present in the selectable text layer unless an embeddable font
   covers them.
-- This is an early `0.1.x` package. The public API is intentionally small, but
+- This is an early `0.0.x` package. The public API is intentionally small, but
   internals are still moving.
 
 ## Development
@@ -80,9 +80,9 @@ other fixed-size DOM layouts where preserving the visual result matters.
 ```sh
 pnpm install
 pnpm lint
-pnpm --filter @vellum/core typecheck
-pnpm --filter @vellum/core test
-pnpm --filter @vellum/core build
+pnpm --filter crispdf typecheck
+pnpm --filter crispdf test
+pnpm --filter crispdf build
 pnpm example
 ```
 
@@ -91,7 +91,7 @@ browser.
 
 ## Repository Layout
 
-- `packages/core`: the published package, `@vellum/core`.
+- `packages/core`: the published package, `crispdf`.
 - `examples`: manual browser example and compatibility stress pages.
 
 ## License

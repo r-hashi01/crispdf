@@ -4,7 +4,7 @@ DOM → high-quality PDF in the browser. Hybrid: **raster background (JPEG of th
 
 ## Core invariants (do not break)
 
-- **Browser-only.** No Node-specific code in `@vellum/core`. The library must run on a static host (e.g. Cloudflare Pages) without a server.
+- **Browser-only.** No Node-specific code in `crispdf`. The library must run on a static host (e.g. Cloudflare Pages) without a server.
 - **Text is real PDF text**, not pixels. The whole point of this project is selectable / searchable / copyable text. Anything that compromises that is a regression.
 - **Failures must be visible, never silent.** If text extraction misses a node, the rasterized background still shows the text — the user sees a degraded but not lost result. Don't add fallbacks that hide problems.
 - **Single source of truth for coordinate scaling.** Source DOM dimensions → PDF page dimensions is one transform, applied in exactly one place. Don't sprinkle scale factors across the pipeline.
@@ -16,7 +16,7 @@ DOM → high-quality PDF in the browser. Hybrid: **raster background (JPEG of th
 vellum/
 ├── PLAN.md               # full design doc (read this first)
 ├── packages/
-│   ├── core/             # @vellum/core — Walker + Rasterizer + PDF Emitter
+│   ├── core/             # crispdf — Walker + Rasterizer + PDF Emitter
 │   ├── validator/        # @vellum/validator — placeholder
 │   ├── react/            # @vellum/react — placeholder
 │   └── astro/            # @vellum/astro — placeholder
@@ -30,7 +30,7 @@ vellum/
 └── CLAUDE.md             # you are here
 ```
 
-Only `@vellum/core` is active. The other three are stubs (private, no implementation) until their phase begins.
+Only `crispdf` is active. The other three are stubs (private, no implementation) until their phase begins.
 
 ## Toolchain
 
@@ -45,7 +45,7 @@ Only `@vellum/core` is active. The other three are stubs (private, no implementa
 
 ```bash
 pnpm install              # install everything
-pnpm build                # build all packages (currently just @vellum/core)
+pnpm build                # build all packages (currently just crispdf)
 pnpm test                 # run tests (boots a real Chromium via Playwright)
 pnpm typecheck            # tsc --noEmit across packages
 pnpm lint                 # biome check
@@ -53,8 +53,8 @@ pnpm format               # biome format --write
 pnpm example              # vite-served playground in examples/ for manual visual verification
 
 # Per-package:
-pnpm --filter @vellum/core build
-pnpm --filter @vellum/core test
+pnpm --filter crispdf build
+pnpm --filter crispdf test
 ```
 
 First-time test runs need Playwright browsers: `pnpm exec playwright install chromium`.
@@ -71,7 +71,7 @@ Both jobs use Node from `.nvmrc` and `pnpm install --frozen-lockfile`, so the lo
 **CD (npm publish):** intentionally **not wired up**. The recommended path when it's time:
 
 - `changesets` for version + changelog management (works well with pnpm workspace)
-- A `release.yml` workflow that consumes a `NPM_TOKEN` secret to publish `@vellum/core`
+- A `release.yml` workflow that consumes a `NPM_TOKEN` secret to publish `crispdf`
 - The other `@vellum/*` packages stay `private: true` until their phase ships
 
 Don't add CD pre-emptively. An npm token + accidental publish on `main` is a real failure mode.
@@ -95,7 +95,7 @@ Measure first, optimize second. Specifically:
 
 ## Conventions
 
-- New files in `@vellum/core/src/`: ESM, `.ts`. Local imports are extensionless (`from './foo'`) — `moduleResolution: Bundler` resolves them, and tsup/esbuild handles emit. Do **not** add `.js` suffixes.
+- New files in `crispdf/src/`: ESM, `.ts`. Local imports are extensionless (`from './foo'`) — `moduleResolution: Bundler` resolves them, and tsup/esbuild handles emit. Do **not** add `.js` suffixes.
 - Prefer pure functions over classes. The pipeline is: `walk(page) → spans`, `capture(page) → raster`, `emit(spans, raster) → PDF`. Each stage should be testable in isolation.
 - Don't mutate the user's DOM permanently. Style injection for the transparency trick must be reverted in a `finally` block, even on throw.
 - No `console.log` in shipped code. Use a typed `onProgress` / `onWarning` hook on the public API.

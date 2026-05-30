@@ -15,7 +15,7 @@ VERSION=$(node -p "require('./packages/core/package.json').version" 2>/dev/null 
 
 echo "# vellum — session status (auto-generated)"
 echo
-echo "\`@vellum/core\` version: **$VERSION**"
+echo "\`crispdf\` version: **$VERSION**"
 echo
 echo "## Recent commits"
 echo '```'

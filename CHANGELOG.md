@@ -2,7 +2,7 @@
 
 ## 0.0.1
 
-Initial public package for `@vellum/core`.
+Initial public package for `crispdf`.
 
 ### Rendering
 - Browser-only DOM to PDF hybrid renderer: raster background + selectable PDF

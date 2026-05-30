@@ -26,13 +26,13 @@
   },
   "packageManager": "pnpm@10.30.2",
   "scripts": {
-    "build": "pnpm --filter @vellum/core run build",
-    "dev": "pnpm --filter @vellum/core run dev",
-    "test": "pnpm --filter @vellum/core run test",
-    "typecheck": "pnpm --filter @vellum/core run typecheck",
+    "build": "pnpm --filter crispdf run build",
+    "dev": "pnpm --filter crispdf run dev",
+    "test": "pnpm --filter crispdf run test",
+    "typecheck": "pnpm --filter crispdf run typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "example": "pnpm --filter @vellum/core exec vite ../../examples"
+    "example": "pnpm --filter crispdf exec vite ../../examples"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.14",

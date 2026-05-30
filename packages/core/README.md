@@ -1,23 +1,23 @@
-# @vellum/core
+# crispdf
 
 Browser-side DOM to PDF with high visual fidelity and selectable text.
 
-`@vellum/core` renders each page as a raster background, then overlays real PDF
+`crispdf` renders each page as a raster background, then overlays real PDF
 text on top. The result keeps complex HTML/CSS visually intact while preserving
 search, selection, and copy/paste for text that can be mapped to a PDF font.
 
 ## Install
 
 ```sh
-pnpm add @vellum/core
-# npm i @vellum/core
-# yarn add @vellum/core
+pnpm add crispdf
+# npm i crispdf
+# yarn add crispdf
 ```
 
 ## Usage
 
 ```ts
-import { domToPdf } from '@vellum/core'
+import { domToPdf } from 'crispdf'
 
 const result = await domToPdf({
   pages: document.querySelectorAll<HTMLElement>('[data-page]'),
@@ -118,7 +118,7 @@ layer can't reproduce still shows in the raster, and `validate()` (before) plus
 CI or at runtime) to catch content that would lose selectable text.
 
 ```ts
-import { validate } from '@vellum/core'
+import { validate } from 'crispdf'
 
 const { ok, errors, warnings } = validate(pages)
 if (!ok) {
@@ -187,7 +187,7 @@ The package runs in browsers. It requires DOM APIs, `Blob`, `fetch`,
   scripts (Korean, Chinese-specific, Thai, …) are not yet auto-fetched.
 - Color emoji support depends on an embeddable font; otherwise emoji are raster
   only.
-- The API is stable enough to try, but this is still a `0.1.x` package.
+- The API is stable enough to try, but this is still a `0.0.x` package.
 
 ## License
 

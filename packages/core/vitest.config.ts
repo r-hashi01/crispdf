@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config'
 const { version } = createRequire(import.meta.url)('./package.json') as { version: string }
 
 export default defineConfig({
-  define: { __VELLUM_VERSION__: JSON.stringify(version) },
+  define: { __CRISPDF_VERSION__: JSON.stringify(version) },
   optimizeDeps: {
     include: ['html-to-image', '@pdf-lib/standard-fonts'],
   },

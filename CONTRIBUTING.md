@@ -7,9 +7,9 @@ Thanks for considering a contribution to Vellum.
 ```sh
 pnpm install
 pnpm lint
-pnpm --filter @vellum/core typecheck
-pnpm --filter @vellum/core test
-pnpm --filter @vellum/core build
+pnpm --filter crispdf typecheck
+pnpm --filter crispdf test
+pnpm --filter crispdf build
 ```
 
 Use `pnpm example` for manual browser checks.
@@ -33,4 +33,4 @@ Font changes should preserve these invariants:
 
 ## Releases
 
-The published package is `@vellum/core`.
+The published package is `crispdf`.
