@@ -12,4 +12,8 @@ export type {
 } from './types'
 export { type ValidationIssue, type ValidationResult, validate } from './validate'
 
-export const VERSION = '0.0.1'
+// Single source of truth is package.json — injected at build/test time via
+// the `__VELLUM_VERSION__` define (see tsup.config.ts / vitest.config.ts) so the
+// version is never duplicated as a literal in source.
+declare const __VELLUM_VERSION__: string
+export const VERSION: string = __VELLUM_VERSION__
