@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Pages that live in another document, such as a same-origin iframe hosting a
+  print view, rendered their text twice. The text-suppression stylesheet went
+  into the global `document`, so the raster still contained the text under the
+  vector layer. `@font-face` discovery, ranges and computed styles now use each
+  page's own document as well, and rule detection no longer relies on
+  `instanceof`, which fails across realms.
+
 ## 0.0.1
 
 Initial public package for `@astlide/crispdf`.

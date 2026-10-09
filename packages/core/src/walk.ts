@@ -1,4 +1,5 @@
 import { parseColor } from './color'
+import { docOf, winOf } from './dom'
 import { type DomPx, domPx, type FontStyle, type TextSpan } from './types'
 
 /**
@@ -12,14 +13,14 @@ import { type DomPx, domPx, type FontStyle, type TextSpan } from './types'
  */
 export function extractSpans(root: HTMLElement): TextSpan[] {
   const rootRect = root.getBoundingClientRect()
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+  const walker = docOf(root).createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement
       if (!parent) return NodeFilter.FILTER_REJECT
       if (parent.closest('[data-vellum-raster-text]')) return NodeFilter.FILTER_REJECT
       const text = node.nodeValue ?? ''
       if (text.trim() === '') return NodeFilter.FILTER_REJECT
-      const cs = window.getComputedStyle(parent)
+      const cs = winOf(parent).getComputedStyle(parent)
       if (cs.visibility === 'hidden' || cs.display === 'none') {
         return NodeFilter.FILTER_REJECT
       }
@@ -39,11 +40,11 @@ export function extractSpans(root: HTMLElement): TextSpan[] {
 
   // Generated content (::before / ::after) has no DOM node to walk, so a
   // separate element pass reads it from getComputedStyle(el, pseudo).
-  const elWalker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+  const elWalker = docOf(root).createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
     acceptNode(node) {
       const el = node as HTMLElement
       if (el.closest('[data-vellum-raster-text]')) return NodeFilter.FILTER_REJECT
-      const cs = window.getComputedStyle(el)
+      const cs = winOf(el).getComputedStyle(el)
       // FILTER_REJECT prunes the whole subtree, which is what we want for
       // display:none / visibility:hidden — its pseudos don't render either.
       if (cs.visibility === 'hidden' || cs.display === 'none') {
@@ -75,7 +76,7 @@ export function extractSpans(root: HTMLElement): TextSpan[] {
  */
 function pushPseudoSpans(el: HTMLElement, rootRect: DOMRect, out: TextSpan[]): void {
   for (const pseudo of ['::before', '::after'] as const) {
-    const cs = window.getComputedStyle(el, pseudo)
+    const cs = winOf(el).getComputedStyle(el, pseudo)
     if (cs.visibility === 'hidden' || cs.display === 'none') continue
     const text = parsePseudoContent(cs.content)
     if (text === null) continue
@@ -125,12 +126,12 @@ function pseudoRect(
 ): Box | null {
   const elRect = el.getBoundingClientRect()
   if (elRect.width === 0 && elRect.height === 0) return null
-  const cs = window.getComputedStyle(el)
+  const cs = winOf(el).getComputedStyle(el)
   const f = (v: string): number => Number.parseFloat(v) || 0
   const contentLeft = elRect.left + f(cs.borderLeftWidth) + f(cs.paddingLeft)
   const contentRight = elRect.right - f(cs.borderRightWidth) - f(cs.paddingRight)
 
-  const range = document.createRange()
+  const range = docOf(el).createRange()
   range.selectNodeContents(el)
   const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0)
 
@@ -195,14 +196,14 @@ function pushSpansForTextNode(
   rootRect: DOMRect,
   out: TextSpan[],
 ): void {
-  const range = document.createRange()
+  const range = docOf(text).createRange()
   range.selectNodeContents(text)
   const lineRects = mergeRectsByVisualLine(
     Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0),
   )
   if (lineRects.length === 0) return
 
-  const cs = window.getComputedStyle(parent)
+  const cs = winOf(parent).getComputedStyle(parent)
   const fontFamily = cs.fontFamily
   const fontSize = domPx(Number.parseFloat(cs.fontSize))
   const fontWeight = parseFontWeight(cs.fontWeight)
@@ -289,7 +290,7 @@ function hasContentSibling(node: Node, direction: 'previous' | 'next'): boolean 
       if ((sib.nodeValue ?? '').trim() !== '') return true
     } else if (sib.nodeType === Node.ELEMENT_NODE) {
       const el = sib as Element
-      const cs = window.getComputedStyle(el)
+      const cs = winOf(el).getComputedStyle(el)
       if (cs.display !== 'none' && el.textContent && el.textContent.trim() !== '') return true
     }
     sib = direction === 'previous' ? sib.previousSibling : sib.nextSibling
@@ -341,7 +342,7 @@ function splitTextByLines(text: Text, lineRects: DOMRect[]): Line[] {
     return [{ text: text.data, rect: only }]
   }
 
-  const range = document.createRange()
+  const range = docOf(text).createRange()
   const length = text.data.length
   const result: Line[] = []
   let charStart = 0
