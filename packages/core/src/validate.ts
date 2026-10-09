@@ -1,3 +1,4 @@
+import { winOf } from './dom'
 /**
  * Static pre-flight validation, the *before* counterpart to the self-check's
  * *after* detection (PLAN §6). It catches content that would lose information
@@ -53,7 +54,7 @@ export function validate(pages: ArrayLike<HTMLElement>): ValidationResult {
     // with the vector text layer, or are meaningless for a fixed-size page.
     const candidates: HTMLElement[] = [page, ...page.querySelectorAll<HTMLElement>('*')]
     for (const el of candidates) {
-      const cs = window.getComputedStyle(el)
+      const cs = winOf(el).getComputedStyle(el)
 
       if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') {
         warnings.push(warn('mix-blend-mode', el, `mix-blend-mode: ${cs.mixBlendMode}`))

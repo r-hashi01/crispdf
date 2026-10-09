@@ -1,4 +1,5 @@
 import { toJpeg, toPng } from 'html-to-image'
+import { docOf } from './dom'
 
 /**
  * The transparency trick: while a single style element is in the document,
@@ -52,10 +53,13 @@ export async function captureRaster(page: HTMLElement, opts: CaptureOptions): Pr
   // so web-font glyphs render correctly; when suppressing, glyphs are
   // transparent so font inlining is pure overhead.
   const skipFonts = suppress
-  const styleEl = suppress ? ensureStyle() : null
+  // The page may live in another document (e.g. an iframe): the suppression
+  // stylesheet and font loading belong to that document.
+  const doc = docOf(page)
+  const styleEl = suppress ? ensureStyle(doc) : null
   if (suppress) page.classList.add(CAPTURE_CLASS)
   try {
-    await document.fonts.ready
+    await doc.fonts.ready
     await nextFrame()
     await nextFrame()
     const dataUrl =
@@ -79,23 +83,26 @@ export async function captureRaster(page: HTMLElement, opts: CaptureOptions): Pr
       page.classList.remove(CAPTURE_CLASS)
       // Leave the <style> in the document for concurrent/subsequent pages; we
       // remove it only when no element still carries the class.
-      if (!document.querySelector(`.${CAPTURE_CLASS}`)) {
+      if (!doc.querySelector(`.${CAPTURE_CLASS}`)) {
         styleEl?.remove()
       }
     }
   }
 }
 
-function ensureStyle(): HTMLStyleElement {
-  const existing = document.getElementById(STYLE_ID)
-  if (existing instanceof HTMLStyleElement) return existing
-  const el = document.createElement('style')
+function ensureStyle(doc: Document): HTMLStyleElement {
+  const existing = doc.getElementById(STYLE_ID)
+  // tagName, not instanceof: an iframe's elements come from another realm.
+  if (existing && existing.tagName === 'STYLE') return existing as HTMLStyleElement
+  const el = doc.createElement('style')
   el.id = STYLE_ID
   el.textContent = TRANSPARENT_TEXT_CSS
-  document.head.appendChild(el)
+  doc.head.appendChild(el)
   return el
 }
 
+// This window's frames, not the page's: an off-screen (or hidden) iframe may
+// get no animation frames at all, while its rendering still updates with ours.
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }

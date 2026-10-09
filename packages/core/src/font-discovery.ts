@@ -37,8 +37,9 @@ export function discoverFontFaces(doc: Document): FontFaceRule[] {
       continue
     }
     for (const r of Array.from(rules)) {
-      if (!(r instanceof CSSFontFaceRule)) continue
-      const parsed = parseFontFaceRule(r)
+      // type, not instanceof: rules from an iframe's sheets come from another realm.
+      if (r.type !== CSSRule.FONT_FACE_RULE) continue
+      const parsed = parseFontFaceRule(r as CSSFontFaceRule)
       if (parsed) out.push(parsed)
     }
   }

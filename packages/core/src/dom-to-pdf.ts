@@ -1,4 +1,5 @@
 import { captureRaster } from './capture'
+import { docOf } from './dom'
 import { emitPdf } from './emit'
 import { discoverFontFaces } from './font-discovery'
 import { resolveCjkFallback, resolveWebFonts, type WebFontCandidate } from './font-resolver'
@@ -69,7 +70,10 @@ export async function domToPdf(opts: DomToPdfOptions): Promise<DomToPdfResult> {
     async () =>
       resolveWebFonts({
         pageSpans,
-        rules: discoverFontFaces(document),
+        // The pages' own documents: they may be iframes, not this document.
+        rules: [...new Set(Array.from(opts.pages, (p) => docOf(p)))].flatMap((doc) =>
+          discoverFontFaces(doc),
+        ),
         onWarning: (msg) => resolverWarnings.push(msg),
       }),
     (durationMs) => opts.onTiming?.({ stage: 'fonts', durationMs }),
