@@ -48,7 +48,15 @@ To cut a release:
    ```
 
 The `release.yml` workflow verifies the tag matches the package version, runs
-the full quality gate, and publishes to npm with provenance using the
-`NPM_TOKEN` repo secret. A one-time setup step: add `NPM_TOKEN` (an npm
-automation or granular access token with publish rights to `@astlide/crispdf`) under
-the repository's Actions secrets.
+the full quality gate, and builds and packs the package in a job without
+publishing rights. The run's summary shows the tarball's sha256 and contents.
+Publishing waits for a maintainer's approval (Actions → the run → *Review
+deployments* → `npm-publish`), then publishes that exact tarball with
+provenance. The publishing job runs none of the repository's code.
+
+No npm token is stored: the package trusts this workflow through npm Trusted
+Publishing, in the `npm-publish` environment only (one-time setup):
+
+```sh
+npm trust github @astlide/crispdf --file release.yml --repo r-hashi01/crispdf --env npm-publish --allow-publish
+```
