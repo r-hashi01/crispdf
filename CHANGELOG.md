@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.2
 
 ### Fixed
 - Pages that live in another document, such as a same-origin iframe hosting a
@@ -9,6 +9,17 @@
   vector layer. `@font-face` discovery, ranges and computed styles now use each
   page's own document as well, and rule detection no longer relies on
   `instanceof`, which fails across realms.
+- Text no font can draw (for example when the fallback font is blocked by a
+  Content-Security-Policy) disappeared from both layers. It now stays in the
+  raster, is left out of the text layer, and a warning lists the characters.
+- The Noto Sans JP fallback is fetched once per weight in use, so bold text
+  stays bold.
+- The fallback also covers symbols outside WinAnsi, such as `→`, and only the
+  characters the font has glyphs for.
+
+### Changed
+- `engines.node` is `>=22.12.0` (Node 20 is end-of-life). crispdf runs in the
+  browser; this only affects install-time checks.
 
 ## 0.0.1
 
