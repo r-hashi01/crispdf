@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FontFaceRule } from './font-discovery'
 import {
   findCandidatesForSpan,
-  resolveCjkFallback,
+  resolveFallbackFonts,
   resolveWebFonts,
   type WebFontCandidate,
 } from './font-resolver'
@@ -298,61 +298,90 @@ describe('resolveWebFonts', () => {
   })
 })
 
-describe('resolveCjkFallback', () => {
-  const cssUrl = /^https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Sans\+JP/
-  const gstaticUrl = 'https://fonts.gstatic.com/l/font?kit=notoSubset'
+describe('resolveFallbackFonts', () => {
+  const cssUrl = /^https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Sans\+JP:wght@(\d+)&text=/
+  const gstaticUrl = (w: string) => `https://fonts.gstatic.com/l/font?kit=noto${w}`
   const sfnt = new Uint8Array([0x00, 0x01, 0x00, 0x00, 0x55])
   const woff2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x09])
+  // The fake font "has" every glyph it was asked for.
+  const coverage = (_bytes: Uint8Array, cps: ReadonlySet<number>) => new Set(cps)
 
-  function cjkFetch() {
+  function notoFetch() {
     return vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (cssUrl.test(url)) {
-        const css = `@font-face{font-family:'Noto Sans JP';font-style:normal;font-weight:400;src:url(${gstaticUrl}) format('woff2');}`
+      const m = url.match(cssUrl)
+      if (m) {
+        const css = `@font-face{font-family:'Noto Sans JP';font-style:normal;font-weight:${m[1]};src:url(${gstaticUrl(m[1] ?? '')}) format('woff2');}`
         return new Response(css, { status: 200 })
       }
-      if (url === gstaticUrl) {
+      if (url.startsWith('https://fonts.gstatic.com/')) {
         return new Response(woff2.slice().buffer, { status: 200 })
       }
       return new Response(null, { status: 404 })
     })
   }
+  const cssCalls = (fetchFn: ReturnType<typeof notoFetch>) =>
+    fetchFn.mock.calls.map((c) => String(c[0])).filter((u) => cssUrl.test(u))
 
   it('fetches a Noto Sans JP subset for uncovered CJK code points via the text= API', async () => {
-    const fetchFn = cjkFetch()
+    const fetchFn = notoFetch()
     const decodeWoff2 = vi.fn(async () => sfnt)
-    const result = await resolveCjkFallback({
+    const [result, ...rest] = await resolveFallbackFonts({
       pageSpans: [[span('Arial, sans-serif', 400, 'normal', '日本語 Hello')]],
       candidates: [],
       fetch: fetchFn,
       decodeWoff2,
+      coverage,
     })
-    expect(result).not.toBeNull()
+    expect(rest).toEqual([])
     expect(result?.bytes).toEqual(sfnt)
+    expect(result?.weight).toBe(400)
     // Covers the CJK glyphs it was fetched for, but not Latin — Latin must
     // keep falling to the deck's own font so we don't restyle ASCII text.
     expect(rangeCoversCodePoint(result?.unicodeRange ?? null, '日'.codePointAt(0) ?? 0)).toBe(true)
     expect(rangeCoversCodePoint(result?.unicodeRange ?? null, 'A'.codePointAt(0) ?? 0)).toBe(false)
-    // The CSS request carries exactly the used CJK characters in text=.
-    const cssCall = fetchFn.mock.calls.find((c) => cssUrl.test(String(c[0])))
-    expect(cssCall).toBeDefined()
-    expect(String(cssCall?.[0])).toContain(encodeURIComponent('日本語'))
-    expect(String(cssCall?.[0])).not.toContain(encodeURIComponent('Hello'))
+    const [call] = cssCalls(fetchFn)
+    expect(call).toContain(encodeURIComponent('日本語'))
+    expect(call).not.toContain(encodeURIComponent('Hello'))
     expect(decodeWoff2).toHaveBeenCalledOnce()
   })
 
-  it('returns null without fetching when no CJK code points are present', async () => {
-    const fetchFn = cjkFetch()
-    const result = await resolveCjkFallback({
-      pageSpans: [[span('Arial', 400, 'normal', 'Just latin text')]],
+  it('fetches one subset per weight in use, so bold text stays bold', async () => {
+    const fetchFn = notoFetch()
+    const result = await resolveFallbackFonts({
+      pageSpans: [[span('Arial', 400, 'normal', '本文'), span('Arial', 700, 'normal', '見出し')]],
       candidates: [],
       fetch: fetchFn,
+      decodeWoff2: async () => sfnt,
+      coverage,
     })
-    expect(result).toBeNull()
-    expect(fetchFn).not.toHaveBeenCalled()
+    expect(result.map((c) => c.weight).sort()).toEqual([400, 700])
+    const bold = result.find((c) => c.weight === 700)
+    expect(rangeCoversCodePoint(bold?.unicodeRange ?? null, '見'.codePointAt(0) ?? 0)).toBe(true)
+    expect(rangeCoversCodePoint(bold?.unicodeRange ?? null, '本'.codePointAt(0) ?? 0)).toBe(false)
+    expect(
+      cssCalls(fetchFn)
+        .map((u) => u.match(cssUrl)?.[1])
+        .sort(),
+    ).toEqual(['400', '700'])
   })
 
-  it('does not fetch a fallback for CJK already covered by a resolved @font-face', async () => {
+  it('asks for symbols outside WinAnsi too, and keeps only the glyphs the font has', async () => {
+    const fetchFn = notoFetch()
+    const [result] = await resolveFallbackFonts({
+      pageSpans: [[span('Arial', 400, 'normal', 'A → B ☃')]],
+      candidates: [],
+      fetch: fetchFn,
+      decodeWoff2: async () => sfnt,
+      // The font has the arrow but no snowman.
+      coverage: (_b, cps) => new Set([...cps].filter((cp) => cp === 0x2192)),
+    })
+    expect(cssCalls(fetchFn)[0]).toContain(encodeURIComponent('→☃'))
+    expect(rangeCoversCodePoint(result?.unicodeRange ?? null, 0x2192)).toBe(true)
+    expect(rangeCoversCodePoint(result?.unicodeRange ?? null, 0x2603)).toBe(false)
+  })
+
+  it('fetches nothing when the standard fonts or a resolved @font-face cover the text', async () => {
     const notoSans: WebFontCandidate = {
       family: 'noto sans jp',
       weight: 400,
@@ -360,27 +389,31 @@ describe('resolveCjkFallback', () => {
       bytes: new Uint8Array([0x00, 0x01, 0x00, 0x00]),
       unicodeRange: [{ start: 0x3000, end: 0x9fff }],
     }
-    const fetchFn = cjkFetch()
-    const result = await resolveCjkFallback({
-      pageSpans: [[span('Noto Sans JP, sans-serif', 400, 'normal', '日本語')]],
+    const fetchFn = notoFetch()
+    const result = await resolveFallbackFonts({
+      pageSpans: [
+        [span('Arial', 400, 'normal', 'Just latin text — “quoted” €5')],
+        [span('Noto Sans JP, sans-serif', 400, 'normal', '日本語')],
+      ],
       candidates: [notoSans],
       fetch: fetchFn,
     })
-    expect(result).toBeNull()
+    expect(result).toEqual([])
     expect(fetchFn).not.toHaveBeenCalled()
   })
 
-  it('soft-fails (null + warning, no throw) when the subset fetch errors', async () => {
+  it('soft-fails (no candidate + warning, no throw) when the subset fetch errors', async () => {
     const fetchFn = vi.fn(async () => new Response(null, { status: 503 }))
     const onWarning = vi.fn()
-    const result = await resolveCjkFallback({
+    const result = await resolveFallbackFonts({
       pageSpans: [[span('Arial', 400, 'normal', '日本語')]],
       candidates: [],
       fetch: fetchFn,
       onWarning,
     })
-    expect(result).toBeNull()
+    expect(result).toEqual([])
     expect(onWarning).toHaveBeenCalledOnce()
+    expect(onWarning.mock.calls[0]?.[0]).toMatch(/stays in the raster/)
   })
 })
 

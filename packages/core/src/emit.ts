@@ -1,5 +1,5 @@
 import { pickStandardFont, type StandardFontKey } from './font-mapping'
-import { findCandidatesForSpan, type WebFontCandidate } from './font-resolver'
+import { candidatesForSpan, type WebFontCandidate } from './font-resolver'
 import { planInlineLayout } from './layout'
 import type { CidFontHandle } from './pdf-writer/cid-font'
 import { PdfDoc, type StandardFontHandle, type StandardFontName } from './pdf-writer/pdf-doc'
@@ -22,7 +22,8 @@ export interface EmitOptions {
    * selection routes uncovered CJK code points to it while Latin stays on the
    * span's own font. Null when no CJK fallback was needed or resolvable.
    */
-  cjkFallback?: WebFontCandidate | null
+  /** Fallback fonts (one per weight) for characters the web fonts don't cover. */
+  fallbacks?: WebFontCandidate[]
   /** Logical DOM size of every page (assumed identical). */
   source: { width: number; height: number }
   /** PDF page size in points. */
@@ -42,15 +43,13 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
   const warnings: string[] = []
   const unencodableStandard = new Set<string>()
 
-  // The CJK fallback is offered to every span on top of its family-matched
-  // candidates; per-character unicode-range selection in splitIntoRuns then
-  // routes uncovered CJK code points to it.
-  const fallback = opts.cjkFallback ?? null
-  const candidatesForSpan = (span: TextSpan): WebFontCandidate[] => {
-    const matched = findCandidatesForSpan(opts.webFonts, span)
-    return fallback ? [...matched, fallback] : matched
-  }
-  const allFonts = fallback ? [...opts.webFonts, fallback] : opts.webFonts
+  // The fallback closest to a span's weight is offered on top of its
+  // family-matched candidates; per-character unicode-range selection in
+  // splitIntoRuns then routes uncovered code points to it.
+  const fallbacks = opts.fallbacks ?? []
+  const spanCandidates = (span: TextSpan): WebFontCandidate[] =>
+    candidatesForSpan(opts.webFonts, fallbacks, span)
+  const allFonts = [...opts.webFonts, ...fallbacks]
 
   // Pre-walk every page span, identify which @font-face candidates would
   // actually be picked at draw time (per char, by unicode-range), and embed
@@ -60,7 +59,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
   const usedCandidates = new Set<WebFontCandidate>()
   for (const pageSpansSet of opts.pageSpans) {
     for (const span of pageSpansSet) {
-      const candidates = candidatesForSpan(span)
+      const candidates = spanCandidates(span)
       if (candidates.length === 0) continue
       for (const ch of span.text) {
         const cp = ch.codePointAt(0) ?? 0
@@ -129,7 +128,7 @@ export async function emitPdf(opts: EmitOptions): Promise<EmitResult> {
     }
     const spanPlans: SpanPlan[] = []
     for (const span of spans) {
-      const candidates = candidatesForSpan(span)
+      const candidates = spanCandidates(span)
       const stdKey = pickStandardFont(span)
       const stdHandle = getStandardFont(stdKey)
       const fontSizePt = span.fontSize * scaleY

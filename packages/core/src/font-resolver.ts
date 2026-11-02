@@ -1,4 +1,6 @@
+import * as fontkit from 'fontkit'
 import { type FontFaceRule, isAllowedFontUrl, matchFontFaceRules } from './font-discovery'
+import { encodeWinAnsi } from './pdf-writer/winansi'
 import type { FontStyle, TextSpan } from './types'
 import { type CodePointRange, rangeCoversCodePoint } from './unicode-range'
 import { decodeWoff2ToSfnt, isSfntBytes } from './woff2-decoder'
@@ -149,120 +151,145 @@ export async function resolveWebFonts(opts: ResolveOptions): Promise<WebFontCand
   return out
 }
 
-/** Synthetic family for the on-demand CJK fallback; never matched by name. */
-export const CJK_FALLBACK_FAMILY = '__vellum-cjk-fallback'
+/** Synthetic family for the on-demand fallback font; never matched by name. */
+export const FALLBACK_FAMILY = '__vellum-fallback'
 
-export interface CjkFallbackOptions {
+/** The weights Noto Sans JP comes in. */
+const FALLBACK_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900]
+
+/**
+ * A span's candidates at draw time: its family-matched web fonts, then the
+ * fallback font closest to its weight.
+ */
+export function candidatesForSpan(
+  webFonts: readonly WebFontCandidate[],
+  fallbacks: readonly WebFontCandidate[],
+  span: TextSpan,
+): WebFontCandidate[] {
+  return [
+    ...findCandidatesForSpan(webFonts, span),
+    ...findCandidatesForSpan(fallbacks, { ...span, fontFamily: FALLBACK_FAMILY }),
+  ]
+}
+
+/**
+ * Whether a character needs no font from us: whitespace and control
+ * characters, and what the standard PDF fonts encode (WinAnsi).
+ */
+export function standardDrawable(ch: string): boolean {
+  return /\s|\p{Cc}/u.test(ch) || encodeWinAnsi(ch).unencodable.size === 0
+}
+
+export interface FallbackOptions {
   pageSpans: TextSpan[][]
   /** Already-resolved @font-face candidates, used to skip covered code points. */
   candidates: readonly WebFontCandidate[]
   fetch?: typeof fetch
   decodeWoff2?: (bytes: Uint8Array) => Promise<Uint8Array>
+  /** The code points of `cps` the font has glyphs for. Default: read with fontkit. */
+  coverage?: (bytes: Uint8Array, cps: ReadonlySet<number>) => Set<number>
   onWarning?: (msg: string) => void
 }
 
 /**
- * Resolve a Noto Sans JP fallback for CJK code points the deck uses but no
- * embedded font (and no standard PDF font) can render. Rather than bundling a
- * multi-MB CJK face, we ask the Google Fonts `text=` API for a subset holding
- * only the characters actually used — typically a few KB.
+ * Resolve Noto Sans JP fallbacks for characters the deck uses but no embedded
+ * font and no standard PDF font can render: CJK, and symbols outside WinAnsi
+ * such as arrows. Rather than bundling a multi-MB face, we ask the Google
+ * Fonts `text=` API for a subset holding only the characters used — one per
+ * weight in use, so bold text stays bold.
  *
- * Returns a single candidate covering exactly those code points (so Latin keeps
- * falling to the deck's own font), or null when no fallback is needed. Network
- * failures degrade to null + a warning; CJK then stays in the raster layer.
+ * Each candidate covers exactly the code points its font has glyphs for (so
+ * Latin keeps falling to the deck's own font). Network failures degrade to a
+ * warning; that text then stays in the raster layer (see raster-text.ts).
  */
-export async function resolveCjkFallback(
-  opts: CjkFallbackOptions,
-): Promise<WebFontCandidate | null> {
-  const needed = collectUncoveredCjk(opts.pageSpans, opts.candidates)
-  if (needed.size === 0) return null
-
+export async function resolveFallbackFonts(opts: FallbackOptions): Promise<WebFontCandidate[]> {
+  const byWeight = collectUncovered(opts.pageSpans, opts.candidates)
   const fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis)
   const decodeWoff2 = opts.decodeWoff2 ?? decodeWoff2ToSfnt
-  const chars = [...needed]
-    .sort((a, b) => a - b)
-    .map((cp) => String.fromCodePoint(cp))
-    .join('')
-  const cssUrl = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP&text=${encodeURIComponent(chars)}`
-
-  try {
-    const cssRes = await fetchFn(cssUrl)
-    if (!cssRes.ok) {
-      opts.onWarning?.(
-        `Fetching the Noto Sans JP fallback CSS failed: HTTP ${cssRes.status}. CJK text stays in the raster (visible, not selectable).`,
-      )
-      return null
-    }
-    const css = await cssRes.text()
-    const src = parseFirstFontUrl(css)
-    if (!src || !isAllowedFontUrl(src)) {
-      opts.onWarning?.(
-        'Could not resolve a Google Fonts subset URL for the CJK fallback. CJK text stays in the raster.',
-      )
-      return null
-    }
-    const fontRes = await fetchFn(src)
-    if (!fontRes.ok) {
-      opts.onWarning?.(
-        `Fetching the Noto Sans JP subset failed: HTTP ${fontRes.status}. CJK text stays in the raster.`,
-      )
-      return null
-    }
-    const raw = new Uint8Array(await fontRes.arrayBuffer())
-    const bytes = isWoff2(raw) ? await decodeWoff2(raw) : raw
-    if (!isSfntBytes(bytes)) {
-      opts.onWarning?.('The Noto Sans JP subset did not decode to SFNT; skipping the CJK fallback.')
-      return null
-    }
-    return {
-      family: CJK_FALLBACK_FAMILY,
-      weight: 400,
-      style: 'normal',
-      bytes,
-      unicodeRange: codePointsToRanges(needed),
-    }
-  } catch (err) {
-    opts.onWarning?.(
-      `Resolving the Noto Sans JP fallback threw: ${(err as Error).message}. CJK text stays in the raster.`,
-    )
-    return null
-  }
+  const coverage = opts.coverage ?? glyphCoverage
+  const resolved = await Promise.all(
+    [...byWeight].map(async ([weight, needed]) => {
+      const chars = [...needed]
+        .sort((a, b) => a - b)
+        .map((cp) => String.fromCodePoint(cp))
+        .join('')
+      const cssUrl = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@${weight}&text=${encodeURIComponent(chars)}`
+      const fail = (why: string): null => {
+        opts.onWarning?.(
+          `Noto Sans JP fallback (weight ${weight}): ${why}. That text stays in the raster (visible, not selectable).`,
+        )
+        return null
+      }
+      try {
+        const cssRes = await fetchFn(cssUrl)
+        if (!cssRes.ok) return fail(`fetching the CSS failed: HTTP ${cssRes.status}`)
+        const src = parseFirstFontUrl(await cssRes.text())
+        if (!src || !isAllowedFontUrl(src)) return fail('no Google Fonts subset URL in the CSS')
+        const fontRes = await fetchFn(src)
+        if (!fontRes.ok) return fail(`fetching the subset failed: HTTP ${fontRes.status}`)
+        const raw = new Uint8Array(await fontRes.arrayBuffer())
+        const bytes = isWoff2(raw) ? await decodeWoff2(raw) : raw
+        if (!isSfntBytes(bytes)) return fail('the subset did not decode to SFNT')
+        const covered = coverage(bytes, needed)
+        if (covered.size === 0) return null
+        const candidate: WebFontCandidate = {
+          family: FALLBACK_FAMILY,
+          weight,
+          style: 'normal',
+          bytes,
+          unicodeRange: codePointsToRanges(covered),
+        }
+        return candidate
+      } catch (err) {
+        return fail(`resolving it threw: ${(err as Error).message}`)
+      }
+    }),
+  )
+  return resolved.filter((c): c is WebFontCandidate => c !== null)
 }
 
 /**
- * Code points used by spans that (a) no matched @font-face candidate covers and
- * (b) lie in a CJK block Noto Sans JP can serve. Latin / WinAnsi text is left
- * to the standard-font path; only genuinely unrenderable CJK needs the fetch.
+ * Code points, by fallback weight, that spans use but neither a matched
+ * @font-face candidate nor a standard PDF font can draw.
  */
-function collectUncoveredCjk(
+function collectUncovered(
   pageSpans: TextSpan[][],
   candidates: readonly WebFontCandidate[],
-): Set<number> {
-  const out = new Set<number>()
+): Map<number, Set<number>> {
+  const out = new Map<number, Set<number>>()
   for (const spans of pageSpans) {
     for (const s of spans) {
       const spanCandidates = findCandidatesForSpan(candidates, s)
       for (const ch of s.text) {
         const cp = ch.codePointAt(0)
-        if (cp === undefined || !isCjkCodePoint(cp)) continue
+        if (cp === undefined || standardDrawable(ch)) continue
         if (spanCandidates.some((c) => rangeCoversCodePoint(c.unicodeRange, cp))) continue
-        out.add(cp)
+        const weight = nearestWeight(s.fontWeight)
+        let set = out.get(weight)
+        if (!set) {
+          set = new Set()
+          out.set(weight, set)
+        }
+        set.add(cp)
       }
     }
   }
   return out
 }
 
-/** Hiragana, Katakana, CJK punctuation/ideographs, and full/half-width forms. */
-function isCjkCodePoint(cp: number): boolean {
-  return (
-    (cp >= 0x3000 && cp <= 0x30ff) || // CJK symbols/punctuation + Hiragana + Katakana
-    (cp >= 0x31f0 && cp <= 0x31ff) || // Katakana phonetic extensions
-    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Unified Ideographs Extension A
-    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified Ideographs
-    (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility Ideographs
-    (cp >= 0xff00 && cp <= 0xffef) // Halfwidth and Fullwidth Forms
+function nearestWeight(weight: number): number {
+  return FALLBACK_WEIGHTS.reduce((best, w) =>
+    Math.abs(w - weight) < Math.abs(best - weight) ? w : best,
   )
+}
+
+function glyphCoverage(bytes: Uint8Array, cps: ReadonlySet<number>): Set<number> {
+  const font = (
+    fontkit as unknown as {
+      create: (b: Uint8Array) => { hasGlyphForCodePoint(cp: number): boolean }
+    }
+  ).create(bytes)
+  return new Set([...cps].filter((cp) => font.hasGlyphForCodePoint(cp)))
 }
 
 function codePointsToRanges(cps: ReadonlySet<number>): CodePointRange[] {
