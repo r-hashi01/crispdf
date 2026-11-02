@@ -1,6 +1,6 @@
 {
   "name": "@astlide/crispdf",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "DOM → high-quality PDF in the browser: raster background + vector text overlay. Selectable, searchable, copyable text.",
   "author": "Ryusei Hashimoto",
   "keywords": [
@@ -12,14 +12,14 @@
     "raster",
     "client-side"
   ],
-  "homepage": "https://github.com/r-hashi01/vellum#readme",
+  "homepage": "https://github.com/r-hashi01/crispdf#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/r-hashi01/vellum.git",
+    "url": "git+https://github.com/r-hashi01/crispdf.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/r-hashi01/vellum/issues"
+    "url": "https://github.com/r-hashi01/crispdf/issues"
   },
   "license": "MIT",
   "type": "module",
