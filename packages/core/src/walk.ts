@@ -2,6 +2,19 @@ import { parseColor } from './color'
 import { docOf, winOf } from './dom'
 import { type DomPx, domPx, type FontStyle, type TextSpan } from './types'
 
+/** The element each span's text renders in: its text node's parent, or the pseudo's element. */
+const spanSources = new WeakMap<TextSpan, Element>()
+
+/** The element a span from `extractSpans` renders in. */
+export function sourceOf(span: TextSpan): Element | undefined {
+  return spanSources.get(span)
+}
+
+function pushSpan(out: TextSpan[], span: TextSpan, source: Element): void {
+  spanSources.set(span, source)
+  out.push(span)
+}
+
 /**
  * Extract every visible text fragment from `root` as a flat list of
  * line-level spans. Coordinates are returned relative to `root`'s top-left.
@@ -90,20 +103,24 @@ function pushPseudoSpans(el: HTMLElement, rootRect: DOMRect, out: TextSpan[]): v
     if (normalized === '') continue
     const rect = pseudoRect(el, pseudo, direction)
     if (!rect) continue
-    out.push({
-      text: normalized,
-      x: domPx(rect.x - rootRect.x),
-      y: domPx(rect.y - rootRect.y),
-      w: domPx(rect.width),
-      h: domPx(rect.height),
-      fontFamily: cs.fontFamily,
-      fontSize: domPx(Number.parseFloat(cs.fontSize)),
-      fontWeight: parseFontWeight(cs.fontWeight),
-      fontStyle: parseFontStyle(cs.fontStyle),
-      direction,
-      color: parseColor(cs.color),
-      letterSpacing: domPx(Number.parseFloat(cs.letterSpacing) || 0),
-    })
+    pushSpan(
+      out,
+      {
+        text: normalized,
+        x: domPx(rect.x - rootRect.x),
+        y: domPx(rect.y - rootRect.y),
+        w: domPx(rect.width),
+        h: domPx(rect.height),
+        fontFamily: cs.fontFamily,
+        fontSize: domPx(Number.parseFloat(cs.fontSize)),
+        fontWeight: parseFontWeight(cs.fontWeight),
+        fontStyle: parseFontStyle(cs.fontStyle),
+        direction,
+        color: parseColor(cs.color),
+        letterSpacing: domPx(Number.parseFloat(cs.letterSpacing) || 0),
+      },
+      el,
+    )
   }
 }
 
@@ -227,20 +244,24 @@ function pushSpansForTextNode(
       keepTrailingSpace: isLast && hasContentAfter,
     })
     if (normalized === '') continue
-    out.push({
-      text: normalized,
-      x: domPx(line.rect.x - rootRect.x),
-      y: domPx(line.rect.y - rootRect.y),
-      w: domPx(line.rect.width),
-      h: domPx(line.rect.height),
-      fontFamily,
-      fontSize,
-      fontWeight,
-      fontStyle,
-      direction,
-      color,
-      letterSpacing,
-    })
+    pushSpan(
+      out,
+      {
+        text: normalized,
+        x: domPx(line.rect.x - rootRect.x),
+        y: domPx(line.rect.y - rootRect.y),
+        w: domPx(line.rect.width),
+        h: domPx(line.rect.height),
+        fontFamily,
+        fontSize,
+        fontWeight,
+        fontStyle,
+        direction,
+        color,
+        letterSpacing,
+      },
+      parent,
+    )
   }
 }
 

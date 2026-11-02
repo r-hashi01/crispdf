@@ -265,20 +265,31 @@ describe('domToPdf (PoC)', () => {
     expect(walkPages.sort()).toEqual([1, 2, 3])
   })
 
-  it('does not throw on characters Helvetica cannot encode, and reports them in warnings', async () => {
-    const page = makePage(
-      '<p style="font-size: 18px; margin: 24px;">capture → walk → emit (☃ 日本語)</p>',
+  it('does not throw on characters no font can draw, and reports them in warnings', async () => {
+    // The fallback font can't load (offline): → ☃ 日本語 have no font at all.
+    const realFetch = globalThis.fetch.bind(globalThis)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).startsWith('data:') ? realFetch(input) : new Response(null, { status: 503 }),
+      ),
     )
-    const result = await domToPdf({
-      pages: [page],
-      source: { width: 800, height: 600 },
-      output: { width: 400, height: 300, unit: 'pt' },
-    })
-    expect(result.blob.type).toBe('application/pdf')
-    expect(result.warnings.length).toBeGreaterThan(0)
-    const w = result.warnings.join(' ')
-    expect(w).toMatch(/cannot encode/i)
-    expect(w).toContain('→')
+    try {
+      const page = makePage(
+        '<p style="font-size: 18px; margin: 24px;">capture → walk → emit (☃ 日本語)</p>',
+      )
+      const result = await domToPdf({
+        pages: [page],
+        source: { width: 800, height: 600 },
+        output: { width: 400, height: 300, unit: 'pt' },
+      })
+      expect(result.blob.type).toBe('application/pdf')
+      const w = result.warnings.join(' ')
+      expect(w).toMatch(/no font can draw/i)
+      expect(w).toContain('→')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('captures pages concurrently while preserving page count and order', async () => {
