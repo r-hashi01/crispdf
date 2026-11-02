@@ -5,13 +5,13 @@
   "description": "DOM → high-quality PDF (raster background + vector text hybrid)",
   "license": "MIT",
   "author": "Ryusei Hashimoto",
-  "homepage": "https://github.com/r-hashi01/vellum#readme",
+  "homepage": "https://github.com/r-hashi01/crispdf#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/r-hashi01/vellum.git"
+    "url": "git+https://github.com/r-hashi01/crispdf.git"
   },
   "bugs": {
-    "url": "https://github.com/r-hashi01/vellum/issues"
+    "url": "https://github.com/r-hashi01/crispdf/issues"
   },
   "keywords": [
     "pdf",

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.0.2
+## 0.0.3
+
+0.0.2 was tagged but not published (its `repository.url` still named the old
+repository, so npm rejected the provenance). 0.0.3 has the same changes, with
+the repository URLs pointing at `r-hashi01/crispdf`.
 
 ### Fixed
 - Pages that live in another document, such as a same-origin iframe hosting a
